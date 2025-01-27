@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package compile
@@ -30,12 +30,13 @@ const (
 )
 
 type Manager struct {
-	log           *zap.SugaredLogger
-	store         storage.SourceStore
-	schemaMgr     schema.Manager
-	updateQueue   chan storage.Event
-	cache         *cache.Cache[namer.ModuleID, *runtimev1.RunnablePolicySet]
-	sf            singleflight.Group
+	store       storage.SourceStore
+	schemaMgr   schema.Manager
+	sf          singleflight.Group
+	log         *zap.SugaredLogger
+	updateQueue chan storage.Event
+	cache       *cache.Cache[namer.ModuleID, *runtimev1.RunnablePolicySet]
+	*storage.SubscriptionManager
 	cacheDuration time.Duration
 }
 
@@ -54,12 +55,13 @@ func NewManagerFromDefaultConf(ctx context.Context, store storage.SourceStore, s
 
 func NewManagerFromConf(ctx context.Context, conf *Conf, store storage.SourceStore, schemaMgr schema.Manager) *Manager {
 	c := &Manager{
-		log:           zap.S().Named("compiler"),
-		store:         store,
-		schemaMgr:     schemaMgr,
-		updateQueue:   make(chan storage.Event, updateQueueSize),
-		cache:         cache.New[namer.ModuleID, *runtimev1.RunnablePolicySet]("compile", conf.CacheSize),
-		cacheDuration: conf.CacheDuration,
+		log:                 zap.S().Named("compiler"),
+		store:               store,
+		schemaMgr:           schemaMgr,
+		updateQueue:         make(chan storage.Event, updateQueueSize),
+		cache:               cache.New[namer.ModuleID, *runtimev1.RunnablePolicySet]("compile", conf.CacheSize),
+		cacheDuration:       conf.CacheDuration,
+		SubscriptionManager: storage.NewSubscriptionManager(ctx),
 	}
 
 	go c.processUpdateQueue(ctx)
@@ -90,6 +92,7 @@ func (c *Manager) processUpdateQueue(ctx context.Context) {
 			case storage.EventReload:
 				c.log.Info("Purging compile cache")
 				c.cache.Purge()
+				c.NotifySubscribers(evt)
 			case storage.EventAddOrUpdatePolicy, storage.EventDeleteOrDisablePolicy:
 				if err := c.recompile(evt); err != nil {
 					c.log.Warnw("Error while processing storage event", "event", evt, "error", err)
@@ -151,6 +154,7 @@ func (c *Manager) recompile(evt storage.Event) error {
 		}
 	}
 
+	c.NotifySubscribers(evt)
 	return nil
 }
 
@@ -190,18 +194,16 @@ func (c *Manager) evict(modID namer.ModuleID) {
 }
 
 func (c *Manager) GetFirstMatch(ctx context.Context, candidates []namer.ModuleID) (*runtimev1.RunnablePolicySet, error) {
-	keyBuilder := new(strings.Builder)
-	for _, modID := range candidates {
-		rps, ok := c.cache.Get(modID)
-		if ok && rps != nil {
-			return rps, nil
-		}
-
-		keyBuilder.WriteString(modID.String())
-		keyBuilder.WriteRune('|')
+	if len(candidates) == 0 {
+		return nil, errors.New("candidates list must contain at least one candidate")
 	}
 
-	key := keyBuilder.String()
+	// If the first candidate is not in the cache, we need to fallback to the store to avoid false positive cache hits when lenient scope search is enabled.
+	if rps, ok := c.cache.Get(candidates[0]); ok && rps != nil {
+		return rps, nil
+	}
+
+	key := candidates[0].String()
 	defer c.sf.Forget(key)
 
 	rpsVal, err, _ := c.sf.Do(key, func() (any, error) {
@@ -231,6 +233,83 @@ func (c *Manager) GetFirstMatch(ctx context.Context, candidates []namer.ModuleID
 
 	//nolint:forcetypeassert
 	return rpsVal.(*runtimev1.RunnablePolicySet), nil
+}
+
+func (c *Manager) GetAll(ctx context.Context) ([]*runtimev1.RunnablePolicySet, error) {
+	cus, err := c.store.GetAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get compilation units: %w", err)
+	}
+
+	rpsSet := make([]*runtimev1.RunnablePolicySet, len(cus))
+	for i, cu := range cus {
+		rps, err := c.compile(cu)
+		if err != nil {
+			return nil, PolicyCompilationErr{underlying: err}
+		}
+
+		rpsSet[i] = rps
+	}
+
+	return rpsSet, nil
+}
+
+func (c *Manager) GetAllMatching(ctx context.Context, modIDs []namer.ModuleID) ([]*runtimev1.RunnablePolicySet, error) {
+	res := []*runtimev1.RunnablePolicySet{}
+	missed := make(map[namer.ModuleID]struct{})
+	for _, id := range modIDs {
+		if rps, ok := c.cache.Get(id); ok && rps != nil {
+			res = append(res, rps)
+			continue
+		}
+		missed[id] = struct{}{}
+	}
+
+	toResolve := make([]namer.ModuleID, len(missed))
+	var b strings.Builder
+	var i int
+	for id := range missed {
+		toResolve[i] = id
+		b.WriteString(id.String())
+		i++
+		if i != len(missed) {
+			b.WriteRune('.')
+		}
+	}
+
+	// We generate a compound key for duplicate calls. This seems counter-intuitive, given any combination
+	// of IDs will generate a unique key and therefore we can have duplicate compilation units being concurrently
+	// retrieved. However, in practice, the `modIDs` parameter passed to this method will be relatively static, as
+	// the sets represent collections of policies which are unlikely to be frequently mutated.
+	key := b.String()
+	defer c.sf.Forget(key)
+
+	compiled, err, _ := c.sf.Do(key, func() (any, error) {
+		cus, err := c.store.GetAllMatching(ctx, toResolve)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get compilation units: %w", err)
+		}
+
+		rpsSet := make([]*runtimev1.RunnablePolicySet, len(cus))
+		for i, cu := range cus {
+			rps, err := c.compile(cu)
+			if err != nil {
+				return nil, PolicyCompilationErr{underlying: err}
+			}
+
+			rpsSet[i] = rps
+		}
+
+		return rpsSet, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	//nolint:forcetypeassert
+	res = append(res, compiled.([]*runtimev1.RunnablePolicySet)...)
+
+	return res, nil
 }
 
 func (c *Manager) GetPolicySet(ctx context.Context, modID namer.ModuleID) (*runtimev1.RunnablePolicySet, error) {

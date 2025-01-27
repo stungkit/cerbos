@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 //go:build !race
@@ -53,7 +53,7 @@ func TestBadgerLog(t *testing.T) {
 	require.True(t, db.Enabled())
 
 	loadData(t, db, startDate)
-	db.ForceWrite(true)
+	db.ForceWrite()
 
 	t.Run("lastNAccessLogEntries", func(t *testing.T) {
 		n := 100

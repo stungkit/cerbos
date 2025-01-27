@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package server
@@ -26,13 +26,17 @@ import (
 	"github.com/cerbos/cerbos/internal/auxdata"
 	"github.com/cerbos/cerbos/internal/compile"
 	"github.com/cerbos/cerbos/internal/engine"
+	"github.com/cerbos/cerbos/internal/engine/policyloader"
+	"github.com/cerbos/cerbos/internal/engine/ruletable"
+	"github.com/cerbos/cerbos/internal/hub"
 	"github.com/cerbos/cerbos/internal/observability/logging"
 	"github.com/cerbos/cerbos/internal/schema"
 	"github.com/cerbos/cerbos/internal/storage"
-	"github.com/cerbos/cerbos/internal/storage/bundle"
 	"github.com/cerbos/cerbos/internal/storage/db/sqlite3"
 	"github.com/cerbos/cerbos/internal/storage/disk"
+	hubstore "github.com/cerbos/cerbos/internal/storage/hub"
 	"github.com/cerbos/cerbos/internal/test"
+	"github.com/cerbos/cloud-api/bundle"
 )
 
 // NOTE(saml) this is the max allowable path length on macOS, which appears to be the shortest of common platforms (at 104).
@@ -40,8 +44,9 @@ const udsMaxSocketPathLength = 104
 
 type testParam struct {
 	store        storage.Store
-	policyLoader engine.PolicyLoader
+	policyLoader policyloader.PolicyLoader
 	schemaMgr    schema.Manager
+	ruletable    *ruletable.RuleTable
 }
 
 type testParamGen func(*testing.T) testParam
@@ -62,10 +67,19 @@ func TestServer(t *testing.T) {
 			schemaMgr := schema.NewFromConf(ctx, store, schema.NewConf(schema.EnforcementReject))
 			policyLoader := compile.NewManagerFromDefaultConf(ctx, store, schemaMgr)
 
+			rt := ruletable.NewRuleTable().WithPolicyLoader(policyLoader)
+
+			rps, err := policyLoader.GetAll(ctx)
+			require.NoError(t, err, "Failed to get all policies")
+
+			err = rt.LoadPolicies(rps)
+			require.NoError(t, err, "Failed to load policies into rule table")
+
 			tp := testParam{
 				store:        store,
 				policyLoader: policyLoader,
 				schemaMgr:    schemaMgr,
+				ruletable:    rt,
 			}
 			return tp
 		}
@@ -74,37 +88,62 @@ func TestServer(t *testing.T) {
 	})
 
 	t.Run("store=bundle_local", func(t *testing.T) {
-		tpg := func(t *testing.T) testParam {
-			t.Helper()
-			ctx, cancelFunc := context.WithCancel(context.Background())
-			t.Cleanup(cancelFunc)
+		tpg := func(version bundle.Version) func(t *testing.T) testParam {
+			return func(t *testing.T) testParam {
+				t.Helper()
+				ctx, cancelFunc := context.WithCancel(context.Background())
+				t.Cleanup(cancelFunc)
 
-			dir := test.PathToDir(t, "bundle")
+				dir := test.PathToDir(t, filepath.Join("bundle", fmt.Sprintf("v%d", version)))
 
-			keyBytes, err := os.ReadFile(filepath.Join(dir, "secret_key.txt"))
-			require.NoError(t, err, "Failed to read secret key")
+				conf := &hubstore.Conf{
+					BundleVersion: version,
+					CacheSize:     1024,
+					Local: &hubstore.LocalSourceConf{
+						BundlePath: filepath.Join(dir, "bundle.crbp"),
+						TempDir:    t.TempDir(),
+					},
+				}
 
-			conf := &bundle.Conf{
-				CacheSize:   1024,
-				Credentials: bundle.CredentialsConf{WorkspaceSecret: string(bytes.TrimSpace(keyBytes))},
-				Local: &bundle.LocalSourceConf{
-					BundlePath: filepath.Join(dir, "bundle.crbp"),
-					TempDir:    t.TempDir(),
-				},
+				switch version {
+				case bundle.Version1:
+					keyBytes, err := os.ReadFile(filepath.Join(dir, "secret_key.txt"))
+					require.NoError(t, err, "Failed to read secret key")
+
+					conf.Credentials = &hub.CredentialsConf{WorkspaceSecret: string(bytes.TrimSpace(keyBytes))}
+				case bundle.Version2:
+					keyBytes, err := os.ReadFile(filepath.Join(dir, "encryption_key.txt"))
+					require.NoError(t, err, "Failed to read encryption key")
+
+					conf.Local.EncryptionKey = string(keyBytes)
+				default:
+				}
+
+				store, err := hubstore.NewStore(ctx, conf)
+				require.NoError(t, err)
+
+				rt := ruletable.NewRuleTable().WithPolicyLoader(store)
+
+				rps, err := store.GetAll(ctx)
+				require.NoError(t, err, "Failed to get all policies")
+
+				err = rt.LoadPolicies(rps)
+				require.NoError(t, err, "Failed to load policies into rule table")
+
+				schemaMgr := schema.NewFromConf(ctx, store, schema.NewConf(schema.EnforcementReject))
+				return testParam{
+					store:        store,
+					policyLoader: store,
+					schemaMgr:    schemaMgr,
+					ruletable:    rt,
+				}
 			}
-			store, err := bundle.NewStore(ctx, conf)
-			require.NoError(t, err)
-
-			schemaMgr := schema.NewFromConf(ctx, store, schema.NewConf(schema.EnforcementReject))
-			tp := testParam{
-				store:        store,
-				policyLoader: store,
-				schemaMgr:    schemaMgr,
-			}
-			return tp
 		}
 
-		t.Run("api", apiTests(tpg))
+		t.Run("api", func(t *testing.T) {
+			t.Run("bundlev1", apiTests(tpg(bundle.Version1)))
+			t.Run("bundlev2", apiTests(tpg(bundle.Version2)))
+		})
 	})
 }
 
@@ -306,6 +345,7 @@ func startServer(t *testing.T, conf *Conf, tpg testParamGen) {
 
 	eng, err := engine.New(ctx, engine.Components{
 		PolicyLoader:      tp.policyLoader,
+		RuleTable:         tp.ruletable,
 		SchemaMgr:         tp.schemaMgr,
 		AuditLog:          auditLog,
 		MetadataExtractor: audit.NewMetadataExtractorFromConf(&audit.Conf{}),

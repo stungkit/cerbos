@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package compile_test
@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	responsev1 "github.com/cerbos/cerbos/api/genpb/cerbos/response/v1"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -30,6 +32,7 @@ func TestManager(t *testing.T) {
 		mgr, mockStore, cancel := mkManager()
 		defer cancel()
 
+		ec := policy.Wrap(test.GenExportConstants(test.NoMod()))
 		ev := policy.Wrap(test.GenExportVariables(test.NoMod()))
 		rp := policy.Wrap(test.GenResourcePolicy(test.NoMod()))
 		dr := policy.Wrap(test.GenDerivedRoles(test.NoMod()))
@@ -42,6 +45,7 @@ func TestManager(t *testing.T) {
 					Definitions: map[namer.ModuleID]*policyv1.Policy{
 						rp.ID: rp.Policy,
 						dr.ID: dr.Policy,
+						ec.ID: ec.Policy,
 						ev.ID: ev.Policy,
 					},
 				},
@@ -112,6 +116,7 @@ func TestManager(t *testing.T) {
 		mgr, mockStore, cancel := mkManager()
 		defer cancel()
 
+		ec := policy.Wrap(test.GenExportConstants(test.NoMod()))
 		ev := policy.Wrap(test.GenExportVariables(test.NoMod()))
 		rp := policy.Wrap(test.GenResourcePolicy(test.NoMod()))
 		dr := policy.Wrap(test.GenDerivedRoles(test.NoMod()))
@@ -124,6 +129,7 @@ func TestManager(t *testing.T) {
 					Definitions: map[namer.ModuleID]*policyv1.Policy{
 						rp.ID: rp.Policy,
 						dr.ID: dr.Policy,
+						ec.ID: ec.Policy,
 						ev.ID: ev.Policy,
 					},
 				},
@@ -138,6 +144,7 @@ func TestManager(t *testing.T) {
 					Definitions: map[namer.ModuleID]*policyv1.Policy{
 						rp.ID: rp.Policy,
 						dr.ID: dr.Policy,
+						ec.ID: ec.Policy,
 						ev.ID: ev.Policy,
 					},
 				},
@@ -145,6 +152,7 @@ func TestManager(t *testing.T) {
 					ModID: dr.ID,
 					Definitions: map[namer.ModuleID]*policyv1.Policy{
 						dr.ID: dr.Policy,
+						ec.ID: ec.Policy,
 						ev.ID: ev.Policy,
 					},
 				},
@@ -178,6 +186,7 @@ func TestManager(t *testing.T) {
 		mgr, mockStore, cancel := mkManager()
 		defer cancel()
 
+		ec := policy.Wrap(test.GenExportConstants(test.NoMod()))
 		ev := policy.Wrap(test.GenExportVariables(test.NoMod()))
 		rp := policy.Wrap(test.GenResourcePolicy(test.NoMod()))
 		dr := policy.Wrap(test.GenDerivedRoles(test.NoMod()))
@@ -193,6 +202,7 @@ func TestManager(t *testing.T) {
 						Definitions: map[namer.ModuleID]*policyv1.Policy{
 							rp.ID: rp.Policy,
 							dr.ID: dr.Policy,
+							ec.ID: ec.Policy,
 							ev.ID: ev.Policy,
 						},
 					},
@@ -203,6 +213,7 @@ func TestManager(t *testing.T) {
 						ModID: rp.ID,
 						Definitions: map[namer.ModuleID]*policyv1.Policy{
 							rp.ID: rp.Policy,
+							ec.ID: ec.Policy,
 							ev.ID: ev.Policy,
 						},
 					},
@@ -234,6 +245,86 @@ func TestManager(t *testing.T) {
 		rps2, err := mgr.GetPolicySet(context.Background(), rp.ID)
 		require.Error(t, err)
 		require.Nil(t, rps2)
+
+		mockStore.AssertExpectations(t)
+	})
+}
+
+func TestGetFirstMatch(t *testing.T) {
+	t.Run("happy_path", func(t *testing.T) {
+		mgr, mockStore, cancel := mkManager()
+		defer cancel()
+
+		rp := policy.Wrap(test.GenResourcePolicy(test.NoMod()))
+		rpFoo := policy.Wrap(test.GenScopedResourcePolicy("foo", test.NoMod()))
+		rpFooBar := policy.Wrap(test.GenScopedResourcePolicy("foo.bar", test.NoMod()))
+		ec := policy.Wrap(test.GenExportConstants(test.NoMod()))
+		ev := policy.Wrap(test.GenExportVariables(test.NoMod()))
+		dr := policy.Wrap(test.GenDerivedRoles(test.NoMod()))
+
+		mockStore.
+			On("GetFirstMatch", mock.MatchedBy(anyCtx), []namer.ModuleID{rpFooBar.ID, rpFoo.ID, rp.ID}).
+			Return(&policy.CompilationUnit{
+				ModID: rpFooBar.ID,
+				Definitions: map[namer.ModuleID]*policyv1.Policy{
+					rpFooBar.ID: rpFooBar.Policy,
+					rpFoo.ID:    rpFoo.Policy,
+					rp.ID:       rp.Policy,
+					dr.ID:       dr.Policy,
+					ec.ID:       ec.Policy,
+					ev.ID:       ev.Policy,
+				},
+			}, nil).
+			Once()
+
+		rps1, err := mgr.GetFirstMatch(context.Background(), []namer.ModuleID{rpFooBar.ID, rpFoo.ID, rp.ID})
+		require.NoError(t, err)
+		require.NotNil(t, rps1)
+
+		// should be read from the cache this time
+		rps2, err := mgr.GetFirstMatch(context.Background(), []namer.ModuleID{rpFooBar.ID, rpFoo.ID, rp.ID})
+		require.NoError(t, err)
+		require.NotNil(t, rps2)
+		require.Equal(t, rps1, rps2)
+
+		mockStore.AssertExpectations(t)
+	})
+
+	t.Run("first_scope_missing", func(t *testing.T) {
+		mgr, mockStore, cancel := mkManager()
+		defer cancel()
+
+		rp := policy.Wrap(test.GenResourcePolicy(test.NoMod()))
+		rpFoo := policy.Wrap(test.GenScopedResourcePolicy("foo", test.NoMod()))
+		rpFooBar := policy.Wrap(test.GenScopedResourcePolicy("foo.bar", test.NoMod()))
+		ec := policy.Wrap(test.GenExportConstants(test.NoMod()))
+		ev := policy.Wrap(test.GenExportVariables(test.NoMod()))
+		dr := policy.Wrap(test.GenDerivedRoles(test.NoMod()))
+
+		// pretend that scope foo.bar doesn't exist
+		mockStore.
+			On("GetFirstMatch", mock.MatchedBy(anyCtx), []namer.ModuleID{rpFooBar.ID, rpFoo.ID, rp.ID}).
+			Return(&policy.CompilationUnit{
+				ModID: rpFoo.ID,
+				Definitions: map[namer.ModuleID]*policyv1.Policy{
+					rpFoo.ID: rpFoo.Policy,
+					rp.ID:    rp.Policy,
+					dr.ID:    dr.Policy,
+					ec.ID:    ec.Policy,
+					ev.ID:    ev.Policy,
+				},
+			}, nil).
+			Twice()
+
+		rps1, err := mgr.GetFirstMatch(context.Background(), []namer.ModuleID{rpFooBar.ID, rpFoo.ID, rp.ID})
+		require.NoError(t, err)
+		require.NotNil(t, rps1)
+
+		// should skip the cache because the first candidate doesn't exist
+		rps2, err := mgr.GetFirstMatch(context.Background(), []namer.ModuleID{rpFooBar.ID, rpFoo.ID, rp.ID})
+		require.NoError(t, err)
+		require.NotNil(t, rps2)
+		require.Equal(t, rps1, rps2)
 
 		mockStore.AssertExpectations(t)
 	})
@@ -295,6 +386,22 @@ func (ms *MockStore) GetFirstMatch(ctx context.Context, candidates []namer.Modul
 	}
 }
 
+func (ms *MockStore) GetAll(ctx context.Context) ([]*policy.CompilationUnit, error) {
+	args := ms.MethodCalled("GetAll", ctx)
+	if res := args.Get(0); res == nil {
+		return nil, args.Error(0)
+	}
+	return args.Get(0).([]*policy.CompilationUnit), args.Error(1)
+}
+
+func (ms *MockStore) GetAllMatching(ctx context.Context, modIDs []namer.ModuleID) ([]*policy.CompilationUnit, error) {
+	args := ms.MethodCalled("GetAllMatching", ctx, modIDs)
+	if res := args.Get(0); res == nil {
+		return nil, args.Error(0)
+	}
+	return args.Get(0).([]*policy.CompilationUnit), args.Error(1)
+}
+
 func (ms *MockStore) GetCompilationUnits(ctx context.Context, ids ...namer.ModuleID) (map[namer.ModuleID]*policy.CompilationUnit, error) {
 	args := ms.MethodCalled("GetCompilationUnits", ctx, ids)
 	res := args.Get(0)
@@ -326,6 +433,14 @@ func (ms *MockStore) AddOrUpdate(ctx context.Context, policies ...policy.Wrapper
 func (ms *MockStore) Delete(ctx context.Context, ids ...namer.ModuleID) error {
 	args := ms.MethodCalled("Delete", ctx, ids)
 	return args.Error(0)
+}
+
+func (ms *MockStore) InspectPolicies(ctx context.Context, _ storage.ListPolicyIDsParams) (map[string]*responsev1.InspectPoliciesResponse_Result, error) {
+	args := ms.MethodCalled("InspectPolicies", ctx)
+	if res := args.Get(0); res == nil {
+		return nil, args.Error(0)
+	}
+	return args.Get(0).(map[string]*responsev1.InspectPoliciesResponse_Result), args.Error(0)
 }
 
 func (ms *MockStore) ListPolicyIDs(ctx context.Context, _ storage.ListPolicyIDsParams) ([]string, error) {

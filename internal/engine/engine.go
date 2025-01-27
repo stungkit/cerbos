@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package engine
@@ -24,7 +24,10 @@ import (
 	runtimev1 "github.com/cerbos/cerbos/api/genpb/cerbos/runtime/v1"
 	schemav1 "github.com/cerbos/cerbos/api/genpb/cerbos/schema/v1"
 	"github.com/cerbos/cerbos/internal/audit"
+	"github.com/cerbos/cerbos/internal/conditions"
 	"github.com/cerbos/cerbos/internal/engine/planner"
+	"github.com/cerbos/cerbos/internal/engine/policyloader"
+	"github.com/cerbos/cerbos/internal/engine/ruletable"
 	"github.com/cerbos/cerbos/internal/engine/tracer"
 	"github.com/cerbos/cerbos/internal/namer"
 	"github.com/cerbos/cerbos/internal/observability/logging"
@@ -44,10 +47,6 @@ const (
 	workerResetThreshold = 1 << 16
 )
 
-type PolicyLoader interface {
-	GetFirstMatch(context.Context, []namer.ModuleID) (*runtimev1.RunnablePolicySet, error)
-}
-
 type CheckOptions struct {
 	tracerSink tracer.Sink
 	evalParams evalParams
@@ -55,6 +54,10 @@ type CheckOptions struct {
 
 func (co *CheckOptions) NowFunc() func() time.Time {
 	return co.evalParams.nowFunc
+}
+
+func (co *CheckOptions) DefaultPolicyVersion() string {
+	return co.evalParams.defaultPolicyVersion
 }
 
 func (co *CheckOptions) LenientScopeSearch() bool {
@@ -82,6 +85,10 @@ func newCheckOptions(ctx context.Context, conf *Conf, opts ...CheckOpt) *CheckOp
 		opt(co)
 	}
 
+	if co.evalParams.nowFunc == nil {
+		co.evalParams.nowFunc = conditions.Now()
+	}
+
 	return co
 }
 
@@ -100,6 +107,7 @@ func WithZapTraceSink(log *zap.Logger) CheckOpt {
 }
 
 // WithNowFunc sets the function for determining `now` during condition evaluation.
+// The function should return the same timestamp every time it is invoked.
 func WithNowFunc(nowFunc func() time.Time) CheckOpt {
 	return func(co *CheckOptions) {
 		co.evalParams.nowFunc = nowFunc
@@ -120,10 +128,18 @@ func WithGlobals(globals map[string]any) CheckOpt {
 	}
 }
 
+// WithDefaultPolicyVersion sets the default policy version for the engine.
+func WithDefaultPolicyVersion(defaultPolicyVersion string) CheckOpt {
+	return func(co *CheckOptions) {
+		co.evalParams.defaultPolicyVersion = defaultPolicyVersion
+	}
+}
+
 type Engine struct {
 	schemaMgr         schema.Manager
 	auditLog          audit.Log
-	policyLoader      PolicyLoader
+	policyLoader      policyloader.PolicyLoader
+	ruleTable         *ruletable.RuleTable
 	conf              *Conf
 	metadataExtractor audit.MetadataExtractor
 	workerPool        []chan<- workIn
@@ -132,7 +148,8 @@ type Engine struct {
 
 type Components struct {
 	AuditLog          audit.Log
-	PolicyLoader      PolicyLoader
+	PolicyLoader      policyloader.PolicyLoader
+	RuleTable         *ruletable.RuleTable
 	SchemaMgr         schema.Manager
 	MetadataExtractor audit.MetadataExtractor
 }
@@ -162,19 +179,20 @@ func NewFromConf(ctx context.Context, conf *Conf, components Components) *Engine
 	return engine
 }
 
-func NewEphemeral(policyLoader PolicyLoader, schemaMgr schema.Manager) (*Engine, error) {
-	conf, err := GetConf()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read engine configuration: %w", err)
+func NewEphemeral(conf *Conf, policyLoader policyloader.PolicyLoader, schemaMgr schema.Manager) *Engine {
+	if conf == nil {
+		conf = &Conf{}
+		conf.SetDefaults()
 	}
 
-	return newEngine(conf, Components{PolicyLoader: policyLoader, SchemaMgr: schemaMgr, AuditLog: audit.NewNopLog()}), nil
+	return newEngine(conf, Components{PolicyLoader: policyLoader, SchemaMgr: schemaMgr, AuditLog: audit.NewNopLog()})
 }
 
 func newEngine(conf *Conf, c Components) *Engine {
 	return &Engine{
 		conf:              conf,
 		policyLoader:      c.PolicyLoader,
+		ruleTable:         c.RuleTable,
 		schemaMgr:         c.SchemaMgr,
 		auditLog:          c.AuditLog,
 		metadataExtractor: c.MetadataExtractor,
@@ -242,18 +260,16 @@ func (engine *Engine) doPlanResources(ctx context.Context, input *enginev1.PlanR
 	}
 
 	// get the principal policy check
-	ppName, ppVersion, ppScope := engine.policyAttr(input.Principal.Id, input.Principal.PolicyVersion, input.Principal.Scope)
+	ppName, ppVersion, ppScope := engine.policyAttr(input.Principal.Id, input.Principal.PolicyVersion, input.Principal.Scope, opts.evalParams)
 	policySet, err := engine.getPrincipalPolicySet(ctx, ppName, ppVersion, ppScope, opts.LenientScopeSearch())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get check for [%s.%s]: %w", ppName, ppVersion, err)
 	}
 
 	result := new(planner.PolicyPlanResult)
-	auditTrail := &auditv1.AuditTrail{EffectivePolicies: make(map[string]*policyv1.SourceAttributes, 2)} //nolint:gomnd
-	now := opts.NowFunc()()
-	nowFn := func() time.Time { return now }
+	auditTrail := &auditv1.AuditTrail{EffectivePolicies: make(map[string]*policyv1.SourceAttributes, 2)} //nolint:mnd
 	if policy := policySet.GetPrincipalPolicy(); policy != nil {
-		policyEvaluator := planner.PrincipalPolicyEvaluator{Policy: policy, Globals: opts.Globals(), NowFn: nowFn}
+		policyEvaluator := planner.PrincipalPolicyEvaluator{Policy: policy, Globals: opts.Globals(), NowFn: opts.NowFunc()}
 		result, err = policyEvaluator.EvaluateResourcesQueryPlan(ctx, input)
 		if err != nil {
 			return nil, nil, err
@@ -262,22 +278,32 @@ func (engine *Engine) doPlanResources(ctx context.Context, input *enginev1.PlanR
 		maps.Copy(auditTrail.EffectivePolicies, policy.GetMeta().GetSourceAttributes())
 	}
 
-	// get the resource policy check
-	rpName, rpVersion, rpScope := engine.policyAttr(input.Resource.Kind, input.Resource.PolicyVersion, input.Resource.Scope)
-	policySet, err = engine.getResourcePolicySet(ctx, rpName, rpVersion, rpScope, opts.LenientScopeSearch())
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get check for [%s.%s]: %w", rpName, rpVersion, err)
+	policyVersion := input.Resource.PolicyVersion
+	if policyVersion == "" {
+		policyVersion = opts.DefaultPolicyVersion()
 	}
 
-	if policy := policySet.GetResourcePolicy(); policy != nil {
-		policyEvaluator := planner.ResourcePolicyEvaluator{Policy: policy, Globals: opts.Globals(), SchemaMgr: engine.schemaMgr, NowFn: nowFn}
-		plan, err := policyEvaluator.EvaluateResourcesQueryPlan(ctx, input)
+	ruleTable := engine.ruleTable
+	if ruleTable == nil {
+		var err error
+		ruleTable, err = engine.getPartialRuleTable(ctx, input.Resource.Kind, policyVersion, input.Resource.Scope, input.Principal.Roles)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if ruleTable != nil {
+		ruleTableResult, err := planner.EvaluateRuleTableQueryPlan(ctx, ruleTable, input, policyVersion, engine.schemaMgr, opts.NowFunc(), opts.Globals())
 		if err != nil {
 			return nil, nil, err
 		}
 
-		maps.Copy(auditTrail.EffectivePolicies, policy.GetMeta().GetSourceAttributes())
-		result = planner.CombinePlans(result, plan)
+		maps.Copy(auditTrail.EffectivePolicies, ruleTableResult.EffectivePolicies)
+		result = planner.CombinePlans(result, ruleTableResult)
+	}
+
+	if result.AllowIsEmpty() && !result.DenyIsEmpty() { // reset an conditional DENY to an unconditional one
+		result.ResetToUnconditionalDeny()
 	}
 
 	output, err := result.ToPlanResourcesOutput(input)
@@ -503,7 +529,11 @@ func (engine *Engine) evaluate(ctx context.Context, input *enginev1.CheckInput, 
 		}
 	}
 
-	output.EffectiveDerivedRoles = result.effectiveDerivedRoles
+	effectiveDerivedRoles := make([]string, 0, len(result.effectiveDerivedRoles))
+	for edr := range result.effectiveDerivedRoles {
+		effectiveDerivedRoles = append(effectiveDerivedRoles, edr)
+	}
+	output.EffectiveDerivedRoles = effectiveDerivedRoles
 	output.ValidationErrors = result.validationErrors
 	output.Outputs = result.outputs
 
@@ -514,22 +544,111 @@ func (engine *Engine) buildEvaluationCtx(ctx context.Context, eparams evalParams
 	ec := &evaluationCtx{}
 
 	// get the principal policy check
-	ppName, ppVersion, ppScope := engine.policyAttr(input.Principal.Id, input.Principal.PolicyVersion, input.Principal.Scope)
+	ppName, ppVersion, ppScope := engine.policyAttr(input.Principal.Id, input.Principal.PolicyVersion, input.Principal.Scope, eparams)
 	ppCheck, err := engine.getPrincipalPolicyEvaluator(ctx, eparams, ppName, ppVersion, ppScope)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get check for [%s.%s]: %w", ppName, ppVersion, err)
 	}
 	ec.addCheck(ppCheck)
 
-	// get the resource policy check
-	rpName, rpVersion, rpScope := engine.policyAttr(input.Resource.Kind, input.Resource.PolicyVersion, input.Resource.Scope)
-	rpCheck, err := engine.getResourcePolicyEvaluator(ctx, eparams, rpName, rpVersion, rpScope)
+	rpName, rpVersion, rpScope := engine.policyAttr(input.Resource.Kind, input.Resource.PolicyVersion, input.Resource.Scope, eparams)
+	pCheck, err := engine.getRuleTableEvaluator(ctx, eparams, rpName, rpVersion, rpScope, input.Principal.Roles)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get check for [%s.%s]: %w", rpName, rpVersion, err)
 	}
-	ec.addCheck(rpCheck)
+	ec.addCheck(pCheck)
 
 	return ec, nil
+}
+
+func (engine *Engine) getRuleTableEvaluator(ctx context.Context, eparams evalParams, resource, policyVer, scope string, inputRoles []string) (Evaluator, error) {
+	ruleTable := engine.ruleTable
+	if ruleTable == nil {
+		var err error
+		ruleTable, err = engine.getPartialRuleTable(ctx, resource, policyVer, scope, inputRoles)
+		if err != nil {
+			return nil, err
+		}
+		if ruleTable == nil {
+			return nil, nil
+		}
+	}
+
+	return NewRuleTableEvaluator(ruleTable, engine.schemaMgr, eparams), nil
+}
+
+func (engine *Engine) getPartialRuleTable(ctx context.Context, resource, policyVer, scope string, inputRoles []string) (*ruletable.RuleTable, error) {
+	// A matching scope must have at least one resource or role policy or a mixture of both.
+
+	ruleTable := ruletable.NewRuleTable()
+	// Add rules for policies at all scope levels.
+	// We duplicate rows for all role policy parent roles recursively.
+	//
+	// Rule table resource policies are added as individual units rather than as compilation units.
+	// Therefore, we need to retrieve the compilation unit for each scope, remove all bar the first policy,
+	// and pass all individually to the LoadPolicies method.
+	toLoad := []*runtimev1.RunnablePolicySet{}
+	// we force lenientScopeSearch when retrieving resource policy sets as lenient scope search is enforced
+	// in the evaluator function. Therefore, to prevent duplicate rows in the rule table, we check the returned
+	// policy scope before adding to `toLoad`
+	addedResourceScopes := make(map[string]struct{})
+	addScopedPolicyRules := func(scope string) error {
+		rps, err := engine.getResourcePolicySet(ctx, resource, policyVer, scope, true)
+		if err != nil {
+			return err
+		}
+
+		if rps != nil {
+			// check the first policy scope
+			p := rps.GetResourcePolicy().GetPolicies()[0]
+			if _, ok := addedResourceScopes[p.Scope]; !ok {
+				toLoad = append(toLoad, rps)
+				addedResourceScopes[p.Scope] = struct{}{}
+			}
+		}
+
+		rlps, err := engine.getRolePolicySets(ctx, scope, inputRoles)
+		if err != nil {
+			return err
+		}
+
+		if (rps == nil || len(rps.GetResourcePolicy().GetPolicies()) == 0) && len(rlps) == 0 {
+			return errNoPoliciesMatched
+		}
+
+		toLoad = append(toLoad, rlps...)
+
+		return nil
+	}
+
+	if err := addScopedPolicyRules(scope); err != nil {
+		if errors.Is(err, errNoPoliciesMatched) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	for i := len(scope) - 1; i >= 0; i-- {
+		if scope[i] == '.' || i == 0 {
+			partialScope := scope[:i]
+			if err := addScopedPolicyRules(partialScope); err != nil {
+				if errors.Is(err, errNoPoliciesMatched) {
+					return nil, nil
+				}
+				return nil, err
+			}
+		}
+	}
+
+	if len(toLoad) == 0 {
+		return nil, nil
+	}
+
+	if err := ruleTable.LoadPolicies(toLoad); err != nil {
+		return nil, err
+	}
+
+	return ruleTable, nil
 }
 
 func (engine *Engine) getPrincipalPolicyEvaluator(ctx context.Context, eparams evalParams, principal, policyVer, scope string) (Evaluator, error) {
@@ -542,7 +661,7 @@ func (engine *Engine) getPrincipalPolicyEvaluator(ctx context.Context, eparams e
 		return nil, nil
 	}
 
-	return NewEvaluator(rps, engine.schemaMgr, eparams), nil
+	return NewPrincipalPolicyEvaluator(rps.GetPrincipalPolicy(), eparams), nil
 }
 
 func (engine *Engine) getPrincipalPolicySet(ctx context.Context, principal, policyVer, scope string, lenientScopeSearch bool) (*runtimev1.RunnablePolicySet, error) {
@@ -560,19 +679,6 @@ func (engine *Engine) getPrincipalPolicySet(ctx context.Context, principal, poli
 	return rps, nil
 }
 
-func (engine *Engine) getResourcePolicyEvaluator(ctx context.Context, eparams evalParams, resource, policyVer, scope string) (Evaluator, error) {
-	rps, err := engine.getResourcePolicySet(ctx, resource, policyVer, scope, eparams.lenientScopeSearch)
-	if err != nil {
-		return nil, err
-	}
-
-	if rps == nil {
-		return nil, nil
-	}
-
-	return NewEvaluator(rps, engine.schemaMgr, eparams), nil
-}
-
 func (engine *Engine) getResourcePolicySet(ctx context.Context, resource, policyVer, scope string, lenientScopeSearch bool) (*runtimev1.RunnablePolicySet, error) {
 	ctx, span := tracing.StartSpan(ctx, "engine.GetResourcePolicy")
 	defer span.End()
@@ -588,13 +694,76 @@ func (engine *Engine) getResourcePolicySet(ctx context.Context, resource, policy
 	return rps, nil
 }
 
-func (engine *Engine) policyAttr(name, version, scope string) (pName, pVersion, pScope string) {
+func (engine *Engine) getRolePolicySets(ctx context.Context, scope string, roles []string) ([]*runtimev1.RunnablePolicySet, error) {
+	ctx, span := tracing.StartSpan(ctx, "engine.GetRolePolicies")
+	defer span.End()
+	span.SetAttributes(tracing.PolicyScope(scope))
+
+	var requireParentalConsent, overrideParent int
+	processedRoles := make(map[string]struct{})
+	sets := []*runtimev1.RunnablePolicySet{}
+
+	// we recursively retrieve all role policies defined within parent roles
+	// (parent roles can be base level or role policy roles)
+	//
+	// TODO: to avoid repeat unconstrained (and potentially expensive) recursions,
+	// we could cache the result here and invalidate if the index changes. This might
+	// not be relevant if we rethink how the index is implemented down the line
+	var getPolicies func([]string, map[string]struct{}) error
+
+	getPolicies = func(roles []string, processedRoles map[string]struct{}) error {
+		roleModIDs := make([]namer.ModuleID, 0, len(roles))
+		for _, r := range roles {
+			if _, ok := processedRoles[r]; !ok {
+				roleModIDs = append(roleModIDs, namer.RolePolicyModuleID(r, scope))
+				processedRoles[r] = struct{}{}
+			}
+		}
+
+		currSets, err := engine.policyLoader.GetAllMatching(ctx, roleModIDs)
+		if err != nil {
+			tracing.MarkFailed(span, http.StatusInternalServerError, err)
+			return err
+		}
+
+		for _, r := range currSets {
+			rp := r.GetRolePolicy()
+
+			err := getPolicies(rp.GetParentRoles(), processedRoles)
+			if err != nil {
+				return err
+			}
+
+			switch rp.ScopePermissions { //nolint:exhaustive
+			case policyv1.ScopePermissions_SCOPE_PERMISSIONS_REQUIRE_PARENTAL_CONSENT_FOR_ALLOWS:
+				requireParentalConsent++
+			case policyv1.ScopePermissions_SCOPE_PERMISSIONS_OVERRIDE_PARENT:
+				overrideParent++
+			}
+
+			if requireParentalConsent > 0 && overrideParent > 0 {
+				return errors.New("invalid scope permissions: role policies cannot combine different scope permissions within the same scope")
+			}
+
+			sets = append(sets, r)
+		}
+		return nil
+	}
+
+	if err := getPolicies(roles, processedRoles); err != nil {
+		return nil, err
+	}
+
+	return sets, nil
+}
+
+func (engine *Engine) policyAttr(name, version, scope string, params evalParams) (pName, pVersion, pScope string) {
 	pName = name
 	pVersion = version
 	pScope = scope
 
 	if version == "" {
-		pVersion = engine.conf.DefaultPolicyVersion
+		pVersion = params.defaultPolicyVersion
 	}
 
 	return pName, pVersion, pScope
@@ -616,8 +785,11 @@ func (ec *evaluationCtx) evaluate(ctx context.Context, tctx tracer.Context, inpu
 	ctx, span := tracing.StartSpan(ctx, "engine.EvalCtxEvaluate")
 	defer span.End()
 
-	resp := &evaluationResult{}
-	if ec.numChecks == 0 {
+	resp := &evaluationResult{
+		effectiveDerivedRoles: make(map[string]struct{}),
+		toResolve:             make(map[string]struct{}),
+	}
+	if len(ec.checks) == 0 {
 		tracing.MarkFailed(span, http.StatusNotFound, errNoPoliciesMatched)
 
 		resp.setDefaultsForUnmatchedActions(tctx, input)
@@ -626,7 +798,6 @@ func (ec *evaluationCtx) evaluate(ctx context.Context, tctx tracer.Context, inpu
 
 	for i := 0; i < ec.numChecks; i++ {
 		c := ec.checks[i]
-
 		result, err := c.Evaluate(ctx, tctx, input)
 		if err != nil {
 			logging.FromContext(ctx).Error("Failed to evaluate policy", zap.Error(err))
@@ -644,13 +815,24 @@ func (ec *evaluationCtx) evaluate(ctx context.Context, tctx tracer.Context, inpu
 	tracing.MarkFailed(span, http.StatusNotFound, errNoPoliciesMatched)
 	resp.setDefaultsForUnmatchedActions(tctx, input)
 
+	for action := range resp.toResolve {
+		if _, ok := resp.effects[action]; !ok {
+			tctx.StartAction(action).AppliedEffect(defaultEffect, "No matching policies")
+			resp.effects[action] = EffectInfo{
+				Effect: defaultEffect,
+				Policy: noPolicyMatch,
+			}
+		}
+	}
+
 	return resp, nil
 }
 
 type evaluationResult struct {
 	effects               map[string]EffectInfo
 	auditTrail            *auditv1.AuditTrail
-	effectiveDerivedRoles []string
+	effectiveDerivedRoles map[string]struct{}
+	toResolve             map[string]struct{}
 	validationErrors      []*schemav1.ValidationError
 	outputs               []*enginev1.OutputEntry
 }
@@ -658,7 +840,6 @@ type evaluationResult struct {
 // merge the results by only updating the actions that have a no_match effect.
 func (er *evaluationResult) merge(res *PolicyEvalResult) bool {
 	er.auditTrail = mergeTrails(er.auditTrail, res.AuditTrail)
-	hasNoMatches := false
 
 	if er.effects == nil {
 		er.effects = make(map[string]EffectInfo, len(res.Effects))
@@ -666,7 +847,7 @@ func (er *evaluationResult) merge(res *PolicyEvalResult) bool {
 
 	if len(res.EffectiveDerivedRoles) > 0 {
 		for edr := range res.EffectiveDerivedRoles {
-			er.effectiveDerivedRoles = append(er.effectiveDerivedRoles, edr)
+			er.effectiveDerivedRoles[edr] = struct{}{}
 		}
 	}
 
@@ -680,17 +861,17 @@ func (er *evaluationResult) merge(res *PolicyEvalResult) bool {
 
 	for action, effect := range res.Effects {
 		// if the action doesn't already exist or if it has a no_match effect, update it.
-		if currEffect, ok := er.effects[action]; !ok || currEffect.Effect == effectv1.Effect_EFFECT_NO_MATCH {
+		if currEffect, ok := er.effects[action]; !ok ||
+			currEffect.Effect == effectv1.Effect_EFFECT_NO_MATCH {
 			er.effects[action] = effect
-
-			// if this effect is a no_match, we still need to traverse the policy hierarchy until we find a definitive answer
-			if effect.Effect == effectv1.Effect_EFFECT_NO_MATCH {
-				hasNoMatches = true
-			}
 		}
 	}
 
-	return hasNoMatches
+	for a := range res.toResolve {
+		er.toResolve[a] = struct{}{}
+	}
+
+	return len(res.toResolve) > 0
 }
 
 func (er *evaluationResult) setDefaultsForUnmatchedActions(tctx tracer.Context, input *enginev1.CheckInput) {

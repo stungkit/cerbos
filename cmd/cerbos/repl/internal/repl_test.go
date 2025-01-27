@@ -1,10 +1,11 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package internal
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -36,6 +37,7 @@ func TestREPL(t *testing.T) {
 	rpPath := filepath.Join(test.PathToDir(t, "store"), "resource_policies", "policy_01.yaml")
 	ppPath := filepath.Join(test.PathToDir(t, "store"), "principal_policies", "policy_01.yaml")
 	rpImportVariablesPath := filepath.Join(test.PathToDir(t, "store"), "resource_policies", "policy_09.yaml")
+	ecPath := filepath.Join(test.PathToDir(t, "store"), "export_constants", "export_constants_01.yaml")
 	evPath := filepath.Join(test.PathToDir(t, "store"), "export_variables", "export_variables_01.yaml")
 	drConds := loadConditionsFromPolicy(t, drPath)
 	rpConds := loadConditionsFromPolicy(t, rpPath)
@@ -252,6 +254,29 @@ func TestREPL(t *testing.T) {
 			},
 		},
 		{
+			name: "set_constants_variable",
+			directives: []DirectiveTest{
+				{
+					Directive: `:let C = {"foo":42}`,
+					Check: func(t *testing.T, m *mockOutput) {
+						t.Helper()
+						require.Equal(t, "C", m.resultName)
+
+						want := map[string]any{"foo": float64(42)}
+						require.Equal(t, want, m.resultVal.Value())
+					},
+				},
+				{
+					Directive: `constants.foo`,
+					Check: func(t *testing.T, m *mockOutput) {
+						t.Helper()
+						require.Equal(t, lastResultVar, m.resultName)
+						require.Equal(t, float64(42), m.resultVal.Value())
+					},
+				},
+			},
+		},
+		{
 			name: "set_variables_variable",
 			directives: []DirectiveTest{
 				{
@@ -388,6 +413,9 @@ func TestREPL(t *testing.T) {
 					WantErr:   true,
 				},
 				{
+					Directive: fmt.Sprintf(":load %s", ecPath),
+				},
+				{
 					Directive: fmt.Sprintf(":load %s", evPath),
 				},
 				{
@@ -398,7 +426,7 @@ func TestREPL(t *testing.T) {
 					Check: func(t *testing.T, output *mockOutput) {
 						t.Helper()
 						require.Equal(t, lastResultVar, output.resultName)
-						require.Equal(t, toRefVal(42), output.resultVal)
+						require.Equal(t, toRefVal(float64(42)), output.resultVal)
 					},
 				},
 			},
@@ -406,7 +434,6 @@ func TestREPL(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			mockOut := &mockOutput{}
 			repl, err := NewREPL(nil, mockOut)
@@ -543,4 +570,124 @@ func loadConditionsFromPolicy(t *testing.T, path string) []*runtimev1.Condition 
 	}
 
 	return conds
+}
+
+func TestComplete(t *testing.T) {
+	testRulesProtos := make([]proto.Message, 3)
+
+	wd, _ := os.Getwd()
+
+	expFilesStrs := []string{
+		"testdata/complete/file.json",
+		"testdata/complete/file.yaml",
+		"testdata/complete/file.yml",
+		"testdata/complete/sub/file.json",
+		"testdata/complete/sub/file.yaml",
+		"testdata/complete/sub/file.yml",
+	}
+
+	expFileLoads := make([]string, len(expFilesStrs))
+	for i, f := range expFilesStrs {
+		expFileLoads[i] = fmt.Sprintf(":load %s", filepath.FromSlash(f))
+	}
+
+	expFileAbsLoads := make([]string, len(expFilesStrs))
+	for i, f := range expFilesStrs {
+		expFileAbsLoads[i] = fmt.Sprintf(":load %s", filepath.Join(wd, filepath.FromSlash(f)))
+	}
+
+	testCases := []struct {
+		input    string
+		expected []string
+		rules    []proto.Message
+	}{
+		{"1 ", []string{}, nil},
+		{":l", []string{":let", ":load"}, nil},
+		{":lo", []string{":load"}, nil},
+
+		{":load", []string{":load"}, nil},
+		{
+			fmt.Sprintf(":load %s", filepath.Join("testdata", "complete")),
+			expFileLoads,
+			nil,
+		},
+		{
+			fmt.Sprintf(":load %s", filepath.Join(wd, "testdata", "complete")),
+			expFileAbsLoads,
+			nil,
+		},
+
+		{
+			":let ",
+			[]string{
+				":let C",
+				":let G",
+				":let P",
+				":let R",
+				":let V",
+				":let _",
+				":let constants",
+				":let globals",
+				":let request",
+				":let runtime",
+				":let variables",
+			},
+			nil,
+		},
+
+		{
+			":exec ",
+			[]string{
+				":exec #0",
+				":exec #1",
+				":exec #2",
+			},
+			testRulesProtos,
+		},
+		{
+			":exec #",
+			[]string{
+				":exec #0",
+				":exec #1",
+				":exec #2",
+			},
+			testRulesProtos,
+		},
+		{
+			":exec #2",
+			[]string{
+				":exec #2",
+			},
+			testRulesProtos,
+		},
+		{
+			":exec #3",
+			[]string{},
+			testRulesProtos,
+		},
+		{
+			":exec #abc",
+			[]string{},
+			testRulesProtos,
+		},
+		{
+			":exec abc",
+			[]string{},
+			testRulesProtos,
+		},
+	}
+
+	for idx, tc := range testCases {
+		t.Run(fmt.Sprintf("TestCase_%d", idx), func(t *testing.T) {
+			mockOut := &mockOutput{}
+			repl, err := NewREPL(nil, mockOut)
+			require.NoError(t, err)
+
+			if tc.rules != nil {
+				repl.policy = &policyHolder{rules: tc.rules}
+			}
+
+			require.Equal(t, tc.expected, repl.Complete(tc.input))
+		})
+	}
 }

@@ -1,0 +1,274 @@
+# yaml-language-server: $schema=../.jsonschema/EngineTestCase.schema.json
+---
+description: "Interleaved resource and role policies with parent roles and REQUIRE_PARENTAL_CONSENT_FOR_ALLOWS"
+inputs:
+  [
+    {
+      "requestId": "test",
+      "actions": [
+        "create", # matches `acme_creator` wildcard resource and parent scope rule with `employee` role
+        "delete", # not defined in leaf scope, is in parent scope for matching (narrowed) derived role
+        "view:public", # matches `acme_jr_admin` action wildcard and `employee_that_owns_the_record` in parent scope
+        "deny", # allowed in target scope, no matching actions in parent scopes
+        "redirect", # not allowed in target scope, but is in parent scope for "employee" which role policy recursively assumes
+                    # and therefore reduces permissions of
+        "block", # Not allowed in target scope, but is allowed in parent scope for role "boss" which role policy does NOT reduce
+                 # permissions of (passed explicitly rather than implicit parent of role policy)
+        "defer", # allowed in target scope resource policy, allowed in parent scope
+        "invite", # allowed in target scope resource policy, no match in parent scope
+        ],
+      "principal":
+        {
+          "id": "john",
+          "roles": [
+            # "employee", # even though this is nested parent role of a referenced role policy, passing it explicitly means we can
+                        # evaluate it with more authority in the parent scopes. TODO(saml) this behaviour requires some thought
+            "acme_creator", # implicitly assumes `acme_jr_admin` as parent role, which itself has `employee` as a parent role
+            "boss",
+          ],
+          "attr":
+            {
+              "department": "marketing",
+              "geography": "GB",
+              "team": "design",
+              "ip_address": "10.21.0.13",
+            },
+        },
+      "resource":
+        {
+          "kind": "leave_request",
+          "scope": "acme.hr.uk.brighton",
+          "id": "XX125",
+          "attr":
+            {
+              "department": "marketing",
+              "geography": "GB",
+              "id": "XX125",
+              "owner": "john",
+              "team": "design",
+            },
+        },
+    },
+  ]
+wantOutputs:
+  [
+    {
+      "requestId": "test",
+      "resourceId": "XX125",
+      "actions":
+        {
+          "view:public":
+            {
+              "effect": "EFFECT_ALLOW",
+              "policy": "resource.leave_request.vdefault/acme.hr.uk.brighton",
+              "scope": "acme.hr",
+            },
+          "delete":
+            {
+              "effect": "EFFECT_DENY",
+              "policy": "NO_MATCH_FOR_SCOPE_PERMISSIONS",
+              "scope": "acme.hr.uk.brighton"
+            },
+          "create":
+            {
+              "effect": "EFFECT_ALLOW",
+              "policy": "resource.leave_request.vdefault/acme.hr.uk.brighton",
+              "scope": "acme",
+            },
+          "deny":
+            {
+              "effect": "EFFECT_DENY",
+              "policy": "resource.leave_request.vdefault/acme.hr.uk.brighton",
+            },
+          "redirect":
+            {
+              "effect": "EFFECT_DENY",
+              "policy": "NO_MATCH_FOR_SCOPE_PERMISSIONS",
+              "scope": "acme.hr.uk.brighton"
+            },
+          "block":
+            {
+              "effect": "EFFECT_ALLOW",
+              "policy": "resource.leave_request.vdefault/acme.hr.uk.brighton",
+              "scope": "acme.hr.uk",
+            },
+          "defer":
+            {
+              "effect": "EFFECT_ALLOW",
+              "policy": "resource.leave_request.vdefault/acme.hr.uk.brighton",
+              "scope": "acme.hr.uk",
+            },
+          "invite":
+            {
+              "effect": "EFFECT_DENY",
+              "policy": "resource.leave_request.vdefault/acme.hr.uk.brighton",
+            },
+        },
+      "effectiveDerivedRoles":
+        ["any_employee", "employee_that_owns_the_record"],
+    },
+  ]
+wantDecisionLogs:
+  [
+    {
+      "callId": "01HGJXT9A4RMD9A7YG74146YV2",
+      "timestamp": "2023-12-01T14:51:39.204970988Z",
+      "checkResources":
+        {
+          "inputs":
+            [
+              {
+                "requestId": "test",
+                "resource":
+                  {
+                    "kind": "leave_request",
+                    "id": "XX125",
+                    "attr":
+                      {
+                        "department": "marketing",
+                        "geography": "GB",
+                        "id": "XX125",
+                        "owner": "john",
+                        "team": "design",
+                      },
+                    "scope": "acme.hr.uk.brighton",
+                  },
+                "principal":
+                  {
+                    "id": "john",
+                    # "roles": ["employee", "acme_creator", "boss"],
+                    "roles": ["acme_creator", "boss"],
+                    "attr":
+                      {
+                        "department": "marketing",
+                        "geography": "GB",
+                        "ip_address": "10.21.0.13",
+                        "team": "design",
+                      },
+                  },
+                "actions": ["create", "delete", "view:public", "deny", "redirect", "block", "defer", "invite"],
+              },
+            ],
+          "outputs":
+            [
+              {
+                "requestId": "test",
+                "resourceId": "XX125",
+                "actions":
+                  {
+                    "create":
+                      {
+                        "effect": "EFFECT_ALLOW",
+                        "policy": "resource.leave_request.vdefault/acme.hr.uk.brighton",
+                        "scope": "acme",
+                      },
+                    "delete":
+                      {
+                        "effect": "EFFECT_DENY",
+                        "policy": "NO_MATCH_FOR_SCOPE_PERMISSIONS",
+                        "scope": "acme.hr.uk.brighton",
+                      },
+                    "view:public":
+                      {
+                        "effect": "EFFECT_ALLOW",
+                        "policy": "resource.leave_request.vdefault/acme.hr.uk.brighton",
+                        "scope": "acme.hr",
+                      },
+                    "deny":
+                      {
+                        "effect": "EFFECT_DENY",
+                        "policy": "resource.leave_request.vdefault/acme.hr.uk.brighton",
+                      },
+                    "redirect":
+                      {
+                        "effect": "EFFECT_DENY",
+                        "policy": "NO_MATCH_FOR_SCOPE_PERMISSIONS",
+                        "scope": "acme.hr.uk.brighton",
+                      },
+                    "block":
+                      {
+                        "effect": "EFFECT_ALLOW",
+                        "policy": "resource.leave_request.vdefault/acme.hr.uk.brighton",
+                        "scope": "acme.hr.uk",
+                      },
+                    "defer":
+                      {
+                        "effect": "EFFECT_ALLOW",
+                        "policy": "resource.leave_request.vdefault/acme.hr.uk.brighton",
+                        "scope": "acme.hr.uk",
+                      },
+                    "invite":
+                      {
+                        "effect": "EFFECT_DENY",
+                        "policy": "resource.leave_request.vdefault/acme.hr.uk.brighton",
+                      },
+                  },
+                "effectiveDerivedRoles":
+                  ["any_employee", "employee_that_owns_the_record"],
+              },
+            ],
+        },
+      "auditTrail":
+        {
+          "effectivePolicies":
+            {
+              "resource.leave_request.vdefault":
+                {
+                  "attributes":
+                    {
+                      "driver": "disk",
+                      "source": "resource_policies/policy_05.yaml",
+                    },
+                },
+              "resource.leave_request.vdefault/acme":
+                {
+                  "attributes":
+                    {
+                      "driver": "disk",
+                      "source": "resource_policies/policy_05_acme.yaml",
+                    },
+                },
+              "resource.leave_request.vdefault/acme.hr":
+                {
+                  "attributes":
+                    {
+                      "driver": "disk",
+                      "source": "resource_policies/policy_05_acme.hr.yaml",
+                    },
+                },
+              "resource.leave_request.vdefault/acme.hr.uk":
+                {
+                  "attributes":
+                    {
+                      "driver": "disk",
+                      "source": "resource_policies/policy_05_acme.hr.uk.yaml",
+                    },
+                },
+              "resource.leave_request.vdefault/acme.hr.uk.brighton":
+                {
+                  "attributes":
+                    {
+                      "driver": "disk",
+                      "source": "resource_policies/policy_05_acme.hr.uk.brighton.yaml",
+                    },
+                },
+              "role.acme_jr_admin/acme.hr.uk.brighton":
+                {
+                  "attributes":
+                    {
+                      "driver": "disk",
+                      "source": "role_policies/policy_01_acme.hr.uk.brighton.yaml",
+                    },
+                },
+              "role.acme_creator/acme.hr.uk.brighton":
+                {
+                  "attributes":
+                    {
+                      "driver": "disk",
+                      "source": "role_policies/policy_02_acme.hr.uk.brighton.yaml",
+                    },
+                },
+            },
+        },
+    },
+  ]

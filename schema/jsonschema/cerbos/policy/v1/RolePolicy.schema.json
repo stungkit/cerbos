@@ -1,0 +1,176 @@
+{
+  "$id": "https://api.cerbos.dev/cerbos/policy/v1/RolePolicy.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "cerbos.policy.v1.Condition": {
+      "allOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "match": {
+              "$ref": "#/definitions/cerbos.policy.v1.Match"
+            },
+            "script": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "match"
+              ]
+            },
+            {
+              "type": "object",
+              "required": [
+                "script"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "cerbos.policy.v1.Match": {
+      "allOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "all": {
+              "$ref": "#/definitions/cerbos.policy.v1.Match.ExprList"
+            },
+            "any": {
+              "$ref": "#/definitions/cerbos.policy.v1.Match.ExprList"
+            },
+            "expr": {
+              "type": "string"
+            },
+            "none": {
+              "$ref": "#/definitions/cerbos.policy.v1.Match.ExprList"
+            }
+          }
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "all"
+              ]
+            },
+            {
+              "type": "object",
+              "required": [
+                "any"
+              ]
+            },
+            {
+              "type": "object",
+              "required": [
+                "none"
+              ]
+            },
+            {
+              "type": "object",
+              "required": [
+                "expr"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "cerbos.policy.v1.Match.ExprList": {
+      "type": "object",
+      "required": [
+        "of"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "of": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/cerbos.policy.v1.Match"
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "cerbos.policy.v1.RoleRule": {
+      "type": "object",
+      "required": [
+        "resource",
+        "allowActions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "allowActions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "condition": {
+          "$ref": "#/definitions/cerbos.policy.v1.Condition"
+        },
+        "resource": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "type": "object",
+      "required": [
+        "scopePermissions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "parentRoles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/cerbos.policy.v1.RoleRule"
+          }
+        },
+        "scope": {
+          "type": "string",
+          "pattern": "^([0-9A-Za-z][\\-0-9A-Z_a-z]*(\\.[\\-0-9A-Z_a-z]*)*)*$"
+        },
+        "scopePermissions": {
+          "type": "string",
+          "enum": [
+            "SCOPE_PERMISSIONS_OVERRIDE_PARENT",
+            "SCOPE_PERMISSIONS_REQUIRE_PARENTAL_CONSENT_FOR_ALLOWS"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "role"
+      ]
+    }
+  ]
+}

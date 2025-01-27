@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package healthcheck
@@ -106,7 +106,6 @@ func TestBuildFromServerConf(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			have, err := tc.cmd.doBuildCheckFromConf(tc.conf)
 			if tc.wantErr {
@@ -185,7 +184,6 @@ func TestBuildManual(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			have, err := tc.cmd.doBuildCheckManual()
 			if tc.wantErr {

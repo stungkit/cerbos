@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package compile
@@ -57,12 +57,61 @@ func Compile(unit *policy.CompilationUnit, schemaMgr schema.Manager) (rps *runti
 		rps = compileResourcePolicySet(mc, schemaMgr)
 	case *policyv1.Policy_PrincipalPolicy:
 		rps = compilePrincipalPolicySet(mc)
-	case *policyv1.Policy_DerivedRoles, *policyv1.Policy_ExportVariables:
+	case *policyv1.Policy_RolePolicy:
+		rps = compileRolePolicySet(mc)
+	case *policyv1.Policy_DerivedRoles, *policyv1.Policy_ExportConstants, *policyv1.Policy_ExportVariables:
 	default:
 		mc.addErrWithDesc(fmt.Errorf("unknown policy type %T", pt), "Unexpected error")
 	}
 
 	return rps, uc.error()
+}
+
+func compileRolePolicySet(modCtx *moduleCtx) *runtimev1.RunnablePolicySet {
+	rp := modCtx.def.GetRolePolicy()
+	if rp == nil {
+		modCtx.addErrWithDesc(errUnexpectedErr, "Not a role policy definition")
+		return nil
+	}
+
+	resources := make(map[string]*runtimev1.RunnableRolePolicySet_RuleList)
+	for i, r := range rp.Rules {
+		if _, ok := resources[r.Resource]; !ok {
+			resources[r.Resource] = &runtimev1.RunnableRolePolicySet_RuleList{}
+		}
+
+		allowActions := make(map[string]*emptypb.Empty, len(r.AllowActions))
+		for _, a := range r.AllowActions {
+			allowActions[a] = &emptypb.Empty{}
+		}
+
+		resources[r.Resource].Rules = append(resources[r.Resource].Rules, &runtimev1.RunnableRolePolicySet_Rule{
+			Resource:     r.Resource,
+			AllowActions: allowActions,
+			Condition:    compileCondition(modCtx, policy.RolePolicyConditionProtoPath(i), r.Condition, true),
+		})
+	}
+
+	return &runtimev1.RunnablePolicySet{
+		CompilerVersion: compilerVersion,
+		Fqn:             modCtx.fqn,
+		PolicySet: &runtimev1.RunnablePolicySet_RolePolicy{
+			RolePolicy: &runtimev1.RunnableRolePolicySet{
+				Meta: &runtimev1.RunnableRolePolicySet_Metadata{
+					Fqn: modCtx.fqn,
+					SourceAttributes: map[string]*policyv1.SourceAttributes{
+						namer.PolicyKeyFromFQN(modCtx.fqn): modCtx.def.GetMetadata().GetSourceAttributes(),
+					},
+					Annotations: modCtx.def.GetMetadata().GetAnnotations(),
+				},
+				Role:             rp.GetRole(),
+				ParentRoles:      rp.ParentRoles,
+				Scope:            rp.Scope,
+				Resources:        resources,
+				ScopePermissions: rp.ScopePermissions,
+			},
+		},
+	}
 }
 
 func compileResourcePolicySet(modCtx *moduleCtx, schemaMgr schema.Manager) *runtimev1.RunnablePolicySet {
@@ -139,13 +188,20 @@ func compileResourcePolicy(modCtx *moduleCtx, schemaMgr schema.Manager) (*runtim
 		return nil, nil
 	}
 
+	compilePolicyConstants(modCtx, rp.Constants)
 	compilePolicyVariables(modCtx, rp.Variables)
 
+	scopePermissions := rp.ScopePermissions
+	if scopePermissions == policyv1.ScopePermissions_SCOPE_PERMISSIONS_UNSPECIFIED {
+		scopePermissions = policyv1.ScopePermissions_SCOPE_PERMISSIONS_OVERRIDE_PARENT
+	}
+
 	rrp := &runtimev1.RunnableResourcePolicySet_Policy{
-		DerivedRoles: referencedRoles,
-		Scope:        rp.Scope,
-		Rules:        make([]*runtimev1.RunnableResourcePolicySet_Policy_Rule, len(rp.Rules)),
-		Schemas:      rp.Schemas,
+		DerivedRoles:     referencedRoles,
+		Scope:            rp.Scope,
+		Rules:            make([]*runtimev1.RunnableResourcePolicySet_Policy_Rule, len(rp.Rules)),
+		Schemas:          rp.Schemas,
+		ScopePermissions: scopePermissions,
 	}
 
 	for i, rule := range rp.Rules {
@@ -158,6 +214,7 @@ func compileResourcePolicy(modCtx *moduleCtx, schemaMgr schema.Manager) (*runtim
 		rrp.Rules[i] = cr
 	}
 
+	rrp.Constants = modCtx.constants.Used()
 	rrp.OrderedVariables, rrp.Variables = modCtx.variables.Used() //nolint:staticcheck
 
 	return rrp, modCtx.def.GetMetadata().GetSourceAttributes()
@@ -252,6 +309,7 @@ func compileDerivedRoles(modCtx *moduleCtx) map[string]*runtimev1.RunnableDerive
 		return nil
 	}
 
+	compilePolicyConstants(modCtx, dr.Constants)
 	compilePolicyVariables(modCtx, dr.Variables)
 
 	// TODO(cell) Because derived roles can be imported many times, cache the result to avoid repeating the work
@@ -270,10 +328,12 @@ func compileDerivedRoles(modCtx *moduleCtx) map[string]*runtimev1.RunnableDerive
 			rdr.ParentRoles[pr] = emptyVal
 		}
 
+		modCtx.constants.ResetUsage()
 		modCtx.variables.ResetUsage()
 		if def.Condition != nil {
 			rdr.Condition = compileCondition(modCtx, policy.DerivedRoleConditionProtoPath(i), def.Condition, true)
 		}
+		rdr.Constants = modCtx.constants.Used()
 		rdr.OrderedVariables, rdr.Variables = modCtx.variables.Used() //nolint:staticcheck
 		compiled[def.Name] = rdr
 	}
@@ -421,11 +481,18 @@ func compilePrincipalPolicy(modCtx *moduleCtx) (*runtimev1.RunnablePrincipalPoli
 		return nil, nil
 	}
 
+	compilePolicyConstants(modCtx, pp.Constants)
 	compilePolicyVariables(modCtx, pp.Variables)
 
+	scopePermissions := pp.ScopePermissions
+	if scopePermissions == policyv1.ScopePermissions_SCOPE_PERMISSIONS_UNSPECIFIED {
+		scopePermissions = policyv1.ScopePermissions_SCOPE_PERMISSIONS_OVERRIDE_PARENT
+	}
+
 	rpp := &runtimev1.RunnablePrincipalPolicySet_Policy{
-		Scope:         pp.Scope,
-		ResourceRules: make(map[string]*runtimev1.RunnablePrincipalPolicySet_Policy_ResourceRules, len(pp.Rules)),
+		Scope:            pp.Scope,
+		ResourceRules:    make(map[string]*runtimev1.RunnablePrincipalPolicySet_Policy_ResourceRules, len(pp.Rules)),
+		ScopePermissions: scopePermissions,
 	}
 
 	for ruleNum, rule := range pp.Rules {
@@ -478,6 +545,7 @@ func compilePrincipalPolicy(modCtx *moduleCtx) (*runtimev1.RunnablePrincipalPoli
 		rpp.ResourceRules[rule.Resource] = rr
 	}
 
+	rpp.Constants = modCtx.constants.Used()
 	rpp.OrderedVariables, rpp.Variables = modCtx.variables.Used() //nolint:staticcheck
 
 	return rpp, modCtx.def.GetMetadata().GetSourceAttributes()

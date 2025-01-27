@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 //go:build tests
@@ -40,6 +40,11 @@ func TestIndexLoadPolicy(t *testing.T) {
 		"resource_policies/policy_05_acme.hr.yaml",
 		"resource_policies/policy_05_acme.yaml",
 		"resource_policies/policy_06.yaml",
+		"role_policies/policy_01_acme.hr.uk.brighton.yaml",
+		"role_policies/policy_02_acme.hr.uk.brighton.yaml",
+		"role_policies/policy_03_override_acme.hr.uk.yaml",
+		"role_policies/policy_04_override_acme.hr.uk.yaml",
+		"role_policies/policy_05_acme.hr.uk.london.yaml",
 	}
 
 	testLoadPolicy := func(t *testing.T, path string) {
@@ -190,10 +195,20 @@ func TestIndexGetFirstMatch(t *testing.T) {
 			name:   "principal_policy/lenient/non_existent",
 			modIDs: namer.ScopedPrincipalPolicyModuleIDs("donald_duck", "blah", "blah", true),
 		},
+		{
+			name:   "role_policy/strict/non_existent",
+			modIDs: []namer.ModuleID{namer.RolePolicyModuleID("acme_super_admin", "acme.hr.uk")},
+		},
+		{
+			name:   "role_policy/strict/existent",
+			modIDs: []namer.ModuleID{namer.RolePolicyModuleID("acme_jr_admin", "acme.hr.uk.brighton")},
+			want: func() namer.ModuleID {
+				return namer.GenModuleIDFromFQN(namer.RolePolicyFQN("acme_jr_admin", "acme.hr.uk.brighton"))
+			},
+		},
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package internal
@@ -57,7 +57,7 @@ type LetDirective struct {
 }
 
 type LoadDirective struct {
-	Path string `parser:"'load' @Path"`
+	Path string `parser:"'load' @(Path|Ident)"`
 }
 
 type ExecDirective struct {

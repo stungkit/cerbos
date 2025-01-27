@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package storage
@@ -10,6 +10,7 @@ import (
 	"io"
 	"sync"
 
+	responsev1 "github.com/cerbos/cerbos/api/genpb/cerbos/response/v1"
 	runtimev1 "github.com/cerbos/cerbos/api/genpb/cerbos/runtime/v1"
 	schemav1 "github.com/cerbos/cerbos/api/genpb/cerbos/schema/v1"
 	"github.com/cerbos/cerbos/internal/config"
@@ -111,6 +112,7 @@ type ListPolicyIDsParams struct {
 	NameRegexp      string
 	ScopeRegexp     string
 	VersionRegexp   string
+	IDs             []string
 	IncludeDisabled bool
 }
 
@@ -118,9 +120,11 @@ type ListPolicyIDsParams struct {
 type Store interface {
 	// Driver is the name of the storage backend implementation.
 	Driver() string
-	// ListPolicyIDs returns the policy IDs in the store
+	// InspectPolicies returns inspection results for the policies in the store.
+	InspectPolicies(context.Context, ListPolicyIDsParams) (map[string]*responsev1.InspectPoliciesResponse_Result, error)
+	// ListPolicyIDs returns the policy IDs in the store.
 	ListPolicyIDs(context.Context, ListPolicyIDsParams) ([]string, error)
-	// ListSchemaIDs returns the schema ids in the store
+	// ListSchemaIDs returns the schema ids in the store.
 	ListSchemaIDs(context.Context) ([]string, error)
 	// LoadSchema loads the given schema from the store.
 	LoadSchema(context.Context, string) (io.ReadCloser, error)
@@ -132,6 +136,10 @@ type SourceStore interface {
 	Subscribable
 	// GetFirstMatch searches for the given module IDs in order and returns the first one found.
 	GetFirstMatch(context.Context, []namer.ModuleID) (*policy.CompilationUnit, error)
+	// GetAll returns all modules that exist within the policy store
+	GetAll(context.Context) ([]*policy.CompilationUnit, error)
+	// GetAllMatching returns all modules that exist for the provided module IDs
+	GetAllMatching(context.Context, []namer.ModuleID) ([]*policy.CompilationUnit, error)
 	// GetCompilationUnits gets the compilation units for the given module IDs.
 	GetCompilationUnits(context.Context, ...namer.ModuleID) (map[namer.ModuleID]*policy.CompilationUnit, error)
 	// GetDependents returns the dependents of the given modules.
@@ -145,6 +153,10 @@ type BinaryStore interface {
 	Store
 	// GetFirstMatch searches for the given module IDs in order and returns the first one found.
 	GetFirstMatch(context.Context, []namer.ModuleID) (*runtimev1.RunnablePolicySet, error)
+	// GetAll returns all modules that exist within the policy store
+	GetAll(context.Context) ([]*runtimev1.RunnablePolicySet, error)
+	// GetAllMatching returns all modules that exist for the provided module IDs
+	GetAllMatching(context.Context, []namer.ModuleID) ([]*runtimev1.RunnablePolicySet, error)
 }
 
 // MutableStore is a store that allows mutations.

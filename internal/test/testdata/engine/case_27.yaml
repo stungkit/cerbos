@@ -1,0 +1,170 @@
+# yaml-language-server: $schema=../.jsonschema/EngineTestCase.schema.json
+---
+description: "Resource policy which assumes role policy defined in same scope"
+inputs:
+  [
+    {
+      "requestId": "test",
+      "actions": [
+        "create",
+        "defer",
+        ],
+      "principal":
+        {
+          "id": "john",
+          "roles": ["acme_london_employee"],
+          "attr":
+            {
+              "city": "london",
+            },
+        },
+      "resource":
+        {
+          "kind": "leave_request",
+          "scope": "acme.hr.uk.london",
+          "id": "XX125",
+          "attr":
+            {
+              "owner": "john",
+            },
+        },
+    },
+  ]
+wantOutputs:
+  [
+    {
+      "requestId": "test",
+      "resourceId": "XX125",
+      "actions":
+        {
+          "create":
+            {
+              "effect": "EFFECT_ALLOW",
+              "policy": "resource.leave_request.vdefault/acme.hr.uk.london",
+              "scope": "acme",
+            },
+          "defer":
+            {
+              "effect": "EFFECT_ALLOW",
+              "policy": "resource.leave_request.vdefault/acme.hr.uk.london",
+              "scope": "acme.hr.uk",
+            },
+        },
+      "effectiveDerivedRoles":
+        ["any_employee", "employee_that_owns_the_record"],
+    },
+  ]
+wantDecisionLogs:
+  [
+    {
+      "callId": "01HGJXT9A4RMD9A7YG74146YV2",
+      "timestamp": "2023-12-01T14:51:39.204970988Z",
+      "checkResources":
+        {
+          "inputs":
+            [
+              {
+                "requestId": "test",
+                "resource":
+                  {
+                    "kind": "leave_request",
+                    "id": "XX125",
+                    "attr":
+                      {
+                        "owner": "john",
+                      },
+                    "scope": "acme.hr.uk.london",
+                  },
+                "principal":
+                  {
+                    "id": "john",
+                    "roles": ["acme_london_employee"],
+                    "attr":
+                      {
+                        "city": "london",
+                      },
+                  },
+                "actions": ["create", "defer"],
+              },
+            ],
+          "outputs":
+            [
+              {
+                "requestId": "test",
+                "resourceId": "XX125",
+                "actions":
+                  {
+                    "create":
+                      {
+                        "effect": "EFFECT_ALLOW",
+                        "policy": "resource.leave_request.vdefault/acme.hr.uk.london",
+                        "scope": "acme",
+                      },
+                    "defer":
+                      {
+                        "effect": "EFFECT_ALLOW",
+                        "policy": "resource.leave_request.vdefault/acme.hr.uk.london",
+                        "scope": "acme.hr.uk",
+                      },
+                  },
+                "effectiveDerivedRoles":
+                  ["any_employee", "employee_that_owns_the_record"],
+              },
+            ],
+        },
+      "auditTrail":
+        {
+          "effectivePolicies":
+            {
+              "resource.leave_request.vdefault":
+                {
+                  "attributes":
+                    {
+                      "driver": "disk",
+                      "source": "resource_policies/policy_05.yaml",
+                    },
+                },
+              "resource.leave_request.vdefault/acme":
+                {
+                  "attributes":
+                    {
+                      "driver": "disk",
+                      "source": "resource_policies/policy_05_acme.yaml",
+                    },
+                },
+              "resource.leave_request.vdefault/acme.hr":
+                {
+                  "attributes":
+                    {
+                      "driver": "disk",
+                      "source": "resource_policies/policy_05_acme.hr.yaml",
+                    },
+                },
+              "resource.leave_request.vdefault/acme.hr.uk":
+                {
+                  "attributes":
+                    {
+                      "driver": "disk",
+                      "source": "resource_policies/policy_05_acme.hr.uk.yaml",
+                    },
+                },
+              "resource.leave_request.vdefault/acme.hr.uk.london":
+                {
+                  "attributes":
+                    {
+                      "driver": "disk",
+                      "source": "resource_policies/policy_05_acme.hr.uk.london.yaml",
+                    },
+                },
+              "role.acme_london_employee/acme.hr.uk.london":
+                {
+                  "attributes":
+                    {
+                      "driver": "disk",
+                      "source": "role_policies/policy_05_acme.hr.uk.london.yaml",
+                    },
+                },
+            },
+        },
+    },
+  ]

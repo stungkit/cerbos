@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package overlay
@@ -13,13 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	responsev1 "github.com/cerbos/cerbos/api/genpb/cerbos/response/v1"
 	runtimev1 "github.com/cerbos/cerbos/api/genpb/cerbos/runtime/v1"
 	"github.com/cerbos/cerbos/internal/config"
 	"github.com/cerbos/cerbos/internal/namer"
 	"github.com/cerbos/cerbos/internal/schema"
 	"github.com/cerbos/cerbos/internal/storage"
 	"github.com/cerbos/cerbos/internal/storage/blob"
-
 	"github.com/cerbos/cerbos/internal/storage/disk"
 )
 
@@ -244,6 +244,16 @@ func (m *MockPolicyLoader) GetFirstMatch(ctx context.Context, candidates []namer
 	return args.Get(0).(*runtimev1.RunnablePolicySet), args.Error(1)
 }
 
+func (m *MockPolicyLoader) GetAll(ctx context.Context) ([]*runtimev1.RunnablePolicySet, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]*runtimev1.RunnablePolicySet), args.Error(1)
+}
+
+func (m *MockPolicyLoader) GetAllMatching(ctx context.Context, modIDs []namer.ModuleID) ([]*runtimev1.RunnablePolicySet, error) {
+	args := m.Called(ctx, modIDs)
+	return args.Get(0).([]*runtimev1.RunnablePolicySet), args.Error(1)
+}
+
 type MockStore struct {
 	mock.Mock
 }
@@ -251,6 +261,14 @@ type MockStore struct {
 func (ms *MockStore) Driver() string {
 	args := ms.Called()
 	return args.String(0)
+}
+
+func (ms *MockStore) InspectPolicies(ctx context.Context, _ storage.ListPolicyIDsParams) (map[string]*responsev1.InspectPoliciesResponse_Result, error) {
+	args := ms.Called(ctx)
+	if res := args.Get(0); res == nil {
+		return nil, args.Error(0)
+	}
+	return args.Get(0).(map[string]*responsev1.InspectPoliciesResponse_Result), args.Error(0)
 }
 
 func (ms *MockStore) ListPolicyIDs(ctx context.Context, _ storage.ListPolicyIDsParams) ([]string, error) {
@@ -285,6 +303,16 @@ type MockBinaryStore struct {
 func (m *MockBinaryStore) GetFirstMatch(ctx context.Context, candidates []namer.ModuleID) (*runtimev1.RunnablePolicySet, error) {
 	args := m.Called(ctx, candidates)
 	return args.Get(0).(*runtimev1.RunnablePolicySet), args.Error(1)
+}
+
+func (m *MockBinaryStore) GetAll(ctx context.Context) ([]*runtimev1.RunnablePolicySet, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]*runtimev1.RunnablePolicySet), args.Error(1)
+}
+
+func (m *MockBinaryStore) GetAllMatching(ctx context.Context, modIDs []namer.ModuleID) ([]*runtimev1.RunnablePolicySet, error) {
+	args := m.Called(ctx, modIDs)
+	return args.Get(0).([]*runtimev1.RunnablePolicySet), args.Error(1)
 }
 
 type MockReloadable struct {

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package svc
@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/spf13/afero"
@@ -302,7 +303,7 @@ func buildIndex(ctx context.Context, log *zap.Logger, files []*requestv1.File) (
 func buildFS(log *zap.Logger, files []*requestv1.File) (fs.FS, error) {
 	fsys := afero.NewMemMapFs()
 	for _, file := range files {
-		if err := afero.WriteFile(fsys, file.FileName, file.Contents, 0o644); err != nil { //nolint:gomnd
+		if err := afero.WriteFile(fsys, file.FileName, file.Contents, 0o644); err != nil { //nolint:mnd
 			log.Error("Failed to create in-mem file", zap.String("file", file.FileName), zap.Error(err))
 			return nil, status.Errorf(codes.Internal, "failed to create file %s", file.FileName)
 		}
@@ -336,9 +337,13 @@ func processLintErrors(ctx context.Context, errs *index.BuildError) *responsev1.
 		})
 	}
 
-	for _, ms := range errs.MissingScopes {
+	for _, missingScopes := range errs.MissingScopeDetails {
 		errors = append(errors, &responsev1.PlaygroundFailure_Error{
-			Error: fmt.Sprintf("Missing scope '%s'", ms),
+			Error: fmt.Sprintf(
+				"Scoped policy %s is not found but is required by descendant policies %s",
+				missingScopes.MissingPolicy,
+				strings.Join(missingScopes.Descendants, ", "),
+			),
 		})
 	}
 
@@ -371,6 +376,15 @@ func processLintErrors(ctx context.Context, errs *index.BuildError) *responsev1.
 				Line:   d.GetPosition().GetLine(),
 				Column: d.GetPosition().GetColumn(),
 			},
+		})
+	}
+
+	for _, scopePermissionConflict := range errs.ScopePermissionsConflicts {
+		errors = append(errors, &responsev1.PlaygroundFailure_Error{
+			Error: fmt.Sprintf(
+				"Policies sharing scope %s have conflicting scopePermissions\n",
+				scopePermissionConflict.Scope,
+			),
 		})
 	}
 
@@ -440,5 +454,5 @@ func (c *components) mkEngine(ctx context.Context) (*engine.Engine, error) {
 		return nil, err
 	}
 
-	return engine.NewEphemeral(cm, c.schemaMgr)
+	return engine.NewEphemeral(nil, cm, c.schemaMgr), nil
 }

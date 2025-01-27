@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package auxdata
@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lestrrat-go/httprc"
+	"github.com/lestrrat-go/httprc/v2"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jws"
 	"github.com/lestrrat-go/jwx/v2/jwt"
@@ -59,7 +59,6 @@ func newJWTHelper(ctx context.Context, conf *JWTConf) *jwtHelper {
 
 		var jwkCache *jwk.Cache
 		for _, ks := range conf.KeySets {
-			ks := ks
 			var opts []any
 			if ks.Insecure.OptionalAlg {
 				log.Warn("[INSECURE CONFIG] Enabling optional alg field for key set", zap.String("keySetID", ks.ID))
@@ -183,6 +182,7 @@ func (j *jwtHelper) doExtract(ctx context.Context, auxJWT *requestv1.AuxData_JWT
 		if !ok {
 			logging.FromContext(ctx).Named("auxdata").
 				Warn("Ignoring JWT key-value pair because the key is not a string", zap.Any("pair", p), zap.Error(err))
+			continue
 		}
 
 		value, err := util.ToStructPB(p.Value)

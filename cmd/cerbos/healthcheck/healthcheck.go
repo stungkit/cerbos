@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package healthcheck
@@ -203,7 +203,7 @@ func (gc grpcCheck) check(ctx context.Context, out io.Writer) error {
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(credentials.NewTLS(gc.tlsConf)))
 	}
 
-	conn, err := grpc.DialContext(ctx, gc.addr, dialOpts...)
+	conn, err := util.EagerGRPCClient(gc.addr, dialOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to gRPC service at %q: %w", gc.addr, err)
 	}

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package engine
@@ -33,7 +33,7 @@ func (c *Conf) Key() string {
 
 func (c *Conf) SetDefaults() {
 	c.DefaultPolicyVersion = namer.DefaultVersion
-	c.NumWorkers = uint(runtime.NumCPU() + 4) //nolint:gomnd
+	c.NumWorkers = uint(runtime.NumCPU() + 4) //nolint:mnd
 }
 
 func (c *Conf) Validate() error {

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package conditions
@@ -24,6 +24,8 @@ const (
 	CELPrincipalAbbrev   = "P"
 	CELPrincipalField    = "principal"
 	CELRuntimeIdent      = "runtime"
+	CELConstantsIdent    = "constants"
+	CELConstantsAbbrev   = "C"
 	CELVariablesIdent    = "variables"
 	CELVariablesAbbrev   = "V"
 	CELGlobalsIdent      = "globals"
@@ -42,6 +44,8 @@ var (
 		decls.NewVar(CELPrincipalAbbrev, decls.NewObjectType("cerbos.engine.v1.Request.Principal")),
 		decls.NewVar(CELResourceAbbrev, decls.NewObjectType("cerbos.engine.v1.Request.Resource")),
 		decls.NewVar(CELRuntimeIdent, decls.NewObjectType("cerbos.engine.v1.Runtime")),
+		decls.NewVar(CELConstantsIdent, decls.NewMapType(decls.String, decls.Dyn)),
+		decls.NewVar(CELConstantsAbbrev, decls.NewMapType(decls.String, decls.Dyn)),
 		decls.NewVar(CELVariablesIdent, decls.NewMapType(decls.String, decls.Dyn)),
 		decls.NewVar(CELVariablesAbbrev, decls.NewMapType(decls.String, decls.Dyn)),
 		decls.NewVar(CELGlobalsIdent, decls.NewMapType(decls.String, decls.Dyn)),
@@ -49,9 +53,12 @@ var (
 	}
 
 	StdEnvOptions = []cel.EnvOption{
+		ext.TwoVarComprehensions(),
 		cel.CrossTypeNumericComparisons(true),
 		cel.Types(&enginev1.Request{}, &enginev1.Request_Principal{}, &enginev1.Request_Resource{}, &enginev1.Runtime{}),
 		cel.Declarations(StdEnvDecls...),
+		ext.Lists(),
+		ext.Bindings(),
 		ext.Strings(),
 		ext.Encoders(),
 		ext.Math(),
@@ -129,6 +136,8 @@ func ExpandAbbrev(s string) string {
 		expanded = Fqn(CELPrincipalField)
 	case CELResourceAbbrev:
 		expanded = Fqn(CELResourceField)
+	case CELConstantsAbbrev:
+		expanded = CELConstantsIdent
 	case CELVariablesAbbrev:
 		expanded = CELVariablesIdent
 	case CELGlobalsAbbrev:

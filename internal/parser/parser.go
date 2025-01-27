@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package parser
@@ -15,6 +15,7 @@ import (
 	"strings"
 	"unsafe"
 
+	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	"github.com/bufbuild/protovalidate-go"
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
@@ -39,6 +40,15 @@ const (
 )
 
 var ErrNotFound = errors.New("not found")
+
+type PanicError struct {
+	Cause   any
+	Context []byte
+}
+
+func (pe PanicError) Error() string {
+	return fmt.Sprintf("panic: %v", pe.Cause)
+}
 
 var protoErrPrefix = regexp.MustCompile(`proto:(\x{00a0}|\x{0020})+\(line\s+\d+:\d+\):\s*`)
 
@@ -106,13 +116,18 @@ func Unmarshal[T proto.Message](r io.Reader, factory func() T, opts ...Unmarshal
 }
 
 func UnmarshalBytes[T proto.Message](contents []byte, factory func() T, opts ...UnmarshalOpt) (_ []T, _ []SourceCtx, outErr error) {
+	contentLen := len(bytes.TrimSpace(contents))
+	if contentLen == 0 {
+		return nil, nil, nil
+	}
+
 	f, err := parse(contents, true)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	if len(f.Docs) == 0 {
-		if len(bytes.TrimSpace(contents)) > 0 {
+		if contentLen > 0 {
 			// Special case for unterminated strings. See test case 20.
 			return nil, nil, NewUnmarshalError(&sourcev1.Error{
 				Kind:     sourcev1.Error_KIND_PARSE_ERROR,
@@ -170,6 +185,12 @@ func UnmarshalBytes[T proto.Message](contents []byte, factory func() T, opts ...
 }
 
 func parse(contents []byte, detectProblems bool) (_ *ast.File, outErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			outErr = PanicError{Cause: r, Context: contents}
+		}
+	}()
+
 	t := lexer.Tokenize(unsafe.String(unsafe.SliceData(contents), len(contents)))
 	if detectProblems && !util.IsJSON(contents) {
 		if errs := detectStringStartingWithQuote(t); len(errs) > 0 {
@@ -180,7 +201,29 @@ func parse(contents []byte, detectProblems bool) (_ *ast.File, outErr error) {
 		}
 	}
 
-	return parser.Parse(t, parser.ParseComments)
+	file, err := parser.Parse(t, parser.ParseComments)
+	if err != nil { //nolint:nestif
+		syntaxErr := new(yaml.SyntaxError)
+		if errors.As(err, &syntaxErr) {
+			srcErr := &sourcev1.Error{
+				Kind:    sourcev1.Error_KIND_PARSE_ERROR,
+				Message: syntaxErr.Message,
+			}
+			if syntaxErr.Token != nil {
+				if syntaxErr.Token.Position != nil {
+					srcErr.Position = &sourcev1.Position{
+						Line:   uint32(syntaxErr.Token.Position.Line),
+						Column: uint32(syntaxErr.Token.Position.Column),
+					}
+				}
+				var errPrinter printer.Printer
+				srcErr.Context = errPrinter.PrintErrorToken(syntaxErr.Token, false)
+			}
+
+			return file, NewUnmarshalError(srcErr)
+		}
+	}
+	return file, err
 }
 
 func detectStringStartingWithQuote(tokens token.Tokens) (outErrs []*sourcev1.Error) {
@@ -463,7 +506,7 @@ func (u *unmarshaler[T]) resolveAlias(uctx *unmarshalCtx, n ast.Node) (ast.Node,
 				return nil, err
 			}
 			keyColumn := nn.Key.GetToken().Position.Column
-			requiredColumn := keyColumn + 2 //nolint:gomnd
+			requiredColumn := keyColumn + 2 //nolint:mnd
 			value.AddColumn(requiredColumn)
 			nn.Value = value
 		} else {
@@ -949,11 +992,41 @@ func (u *unmarshaler[T]) validate(uctx *unmarshalCtx, msg T) (outErr error) {
 	}
 
 	for _, v := range verrs.Violations {
-		path := v.GetFieldPath()
-		outErr = errors.Join(outErr, uctx.verrorf(path, v.GetMessage()))
+		path := fieldPathString(v.Proto.GetField().GetElements())
+		outErr = errors.Join(outErr, uctx.verrorf(path, v.Proto.GetMessage()))
 	}
 
 	return outErr
+}
+
+// Taken from https://github.com/bufbuild/protovalidate-go/blob/46121307d89af5b7ae07e27a58d1c2ac26845388/internal/errors/utils.go#L133
+func fieldPathString(path []*validate.FieldPathElement) string {
+	var result strings.Builder
+	for i, element := range path {
+		if i > 0 {
+			result.WriteByte('.')
+		}
+		result.WriteString(element.GetFieldName())
+		subscript := element.GetSubscript()
+		if subscript == nil {
+			continue
+		}
+		result.WriteByte('[')
+		switch value := subscript.(type) {
+		case *validate.FieldPathElement_Index:
+			result.WriteString(strconv.FormatUint(value.Index, 10))
+		case *validate.FieldPathElement_BoolKey:
+			result.WriteString(strconv.FormatBool(value.BoolKey))
+		case *validate.FieldPathElement_IntKey:
+			result.WriteString(strconv.FormatInt(value.IntKey, 10))
+		case *validate.FieldPathElement_UintKey:
+			result.WriteString(strconv.FormatUint(value.UintKey, 10))
+		case *validate.FieldPathElement_StringKey:
+			result.WriteString(strconv.Quote(value.StringKey))
+		}
+		result.WriteByte(']')
+	}
+	return result.String()
 }
 
 func pos(n ast.Node) string {

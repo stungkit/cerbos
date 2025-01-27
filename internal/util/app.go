@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package util
@@ -9,9 +9,11 @@ import (
 	"os"
 	"runtime/debug"
 	"strings"
+	"sync"
 
 	pdpv1 "github.com/cerbos/cloud-api/genpb/cerbos/cloud/pdp/v1"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 var (
@@ -59,15 +61,23 @@ func AppShortVersion() string {
 	return sb.String()
 }
 
+var getPdpID = sync.OnceValue(func() string {
+	//nolint:gosec
+	nodeID := md5.Sum(uuid.NodeID())
+	return fmt.Sprintf("%X-%d", nodeID, os.Getpid())
+})
+
 func PDPIdentifier(pdpID string) *pdpv1.Identifier {
 	if pdpID == "" {
-		//nolint:gosec
-		nodeID := md5.Sum(uuid.NodeID())
-		pdpID = fmt.Sprintf("%X-%d", nodeID, os.Getpid())
+		pdpID = getPdpID()
 	}
 
 	return &pdpv1.Identifier{
 		Instance: pdpID,
 		Version:  AppShortVersion(),
 	}
+}
+
+func DeprecationWarning(deprecated, replacement string) {
+	zap.S().Warnf("[DEPRECATED CONFIG] %s is deprecated and will be removed in a future release. Please use %s instead.", deprecated, replacement)
 }

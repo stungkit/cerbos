@@ -1,14 +1,16 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package verify_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/cerbos/cloud-api/bundle"
 	"github.com/stretchr/testify/require"
 
 	policyv1 "github.com/cerbos/cerbos/api/genpb/cerbos/policy/v1"
@@ -25,7 +27,7 @@ func TestFiles(t *testing.T) {
 
 func TestBundle(t *testing.T) {
 	params := verify.BundleParams{
-		BundlePath: filepath.Join(test.PathToDir(t, "bundle"), "bundle_unencrypted.crbp"),
+		BundlePath: filepath.Join(test.PathToDir(t, filepath.Join("bundle", fmt.Sprintf("v%d", bundle.Version1))), "bundle_unencrypted.crbp"),
 		TestsDir:   test.PathToDir(t, "store"),
 		WorkDir:    t.TempDir(),
 	}

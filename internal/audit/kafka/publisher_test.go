@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package kafka_test
@@ -193,7 +193,7 @@ func (m *mockClient) Flush(_ context.Context) error {
 	return nil
 }
 
-func (m *mockClient) Produce(_ context.Context, record *kgo.Record, _ func(*kgo.Record, error)) {
+func (m *mockClient) TryProduce(_ context.Context, record *kgo.Record, _ func(*kgo.Record, error)) {
 	m.Records = append(m.Records, record)
 }
 

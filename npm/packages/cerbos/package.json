@@ -1,6 +1,6 @@
 {
   "name": "cerbos",
-  "version": "0.35.0-prerelease",
+  "version": "0.41.0-prerelease",
   "description": "The cerbos binary",
   "repository": {
     "type": "git",
@@ -19,11 +19,26 @@
   "files": [
     "index.js"
   ],
+  "keywords": [
+    "Cerbos",
+    "authorization",
+    "access control",
+    "roles",
+    "permissions",
+    "policy",
+    "security",
+    "role-based access control",
+    "RBAC",
+    "attribute-based access control",
+    "ABAC",
+    "policy decision point",
+    "PDP"
+  ],
   "scripts": {},
   "optionalDependencies": {
-    "@cerbos/cerbos-darwin-arm64": "0.35.0-prerelease",
-    "@cerbos/cerbos-darwin-x64": "0.35.0-prerelease",
-    "@cerbos/cerbos-linux-arm64": "0.35.0-prerelease",
-    "@cerbos/cerbos-linux-x64": "0.35.0-prerelease"
+    "@cerbos/cerbos-darwin-arm64": "0.41.0-prerelease",
+    "@cerbos/cerbos-darwin-x64": "0.41.0-prerelease",
+    "@cerbos/cerbos-linux-arm64": "0.41.0-prerelease",
+    "@cerbos/cerbos-linux-x64": "0.41.0-prerelease"
   }
 }

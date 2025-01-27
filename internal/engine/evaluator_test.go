@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 //go:build tests
@@ -29,14 +29,13 @@ func TestSatisfiesCondition(t *testing.T) {
 	eparams := evalParams{nowFunc: func() time.Time { return timeNow }}
 
 	for _, tcase := range testCases {
-		tcase := tcase
 		t.Run(tcase.Name, func(t *testing.T) {
 			tc := readCELTestCase(t, tcase.Input)
 			cond, err := compile.Condition(&policyv1.Condition{Condition: &policyv1.Condition_Match{Match: tc.Condition}})
 			require.NoError(t, err)
 
 			tctx := tracer.Start(newTestTraceSink(t))
-			retVal, err := newEvalContext(eparams, tc.Request).satisfiesCondition(tctx.StartCondition(), cond, nil)
+			retVal, err := newEvalContext(eparams, tc.Request).satisfiesCondition(tctx.StartCondition(), cond, nil, nil)
 
 			if tc.WantError {
 				require.Error(t, err)

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package schema
@@ -31,8 +31,13 @@ func (e ErrSource) toProto() schemav1.ValidationError_Source {
 }
 
 func newValidationError(err *jsonschema.ValidationError, source ErrSource) ValidationError {
+	path := "/"
+	if err.InstanceLocation != "" {
+		path = err.InstanceLocation
+	}
+
 	return ValidationError{
-		Path:    err.InstanceLocation,
+		Path:    path,
 		Message: err.Message,
 		Source:  source,
 	}

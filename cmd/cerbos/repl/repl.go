@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package repl
@@ -51,13 +51,15 @@ func (c *Cmd) Run(k *kong.Kong) error {
 		return fmt.Errorf("failed to initialize the REPL: %w", err)
 	}
 
+	reader.SetCompleter(r.Complete)
+
 	return r.Loop()
 }
 
 func getHistoryFile(path string) string {
 	if path == "" {
 		dir := filepath.Join(xdg.DataHome, "cerbos")
-		//nolint:gomnd
+		//nolint:mnd
 		if err := os.MkdirAll(dir, 0o744); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to create directory %q (%v): history is disabled", dir, err)
 			return ""

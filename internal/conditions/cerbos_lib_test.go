@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package conditions_test
@@ -106,7 +106,7 @@ func TestCerbosLib(t *testing.T) {
 			ast, issues := env.Compile(tc.expr)
 			is.NoError(issues.Err())
 
-			have, _, err := conditions.Eval(env, ast, cel.NoVars(), time.Now)
+			have, _, err := conditions.Eval(env, ast, cel.NoVars(), conditions.Now())
 			if tc.wantErr {
 				is.Error(err)
 			} else {

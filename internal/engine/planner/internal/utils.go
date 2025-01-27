@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package internal
@@ -59,4 +59,15 @@ func MkCallExpr(op string, args ...*exprpb.Expr) *exprpb.Expr {
 		}},
 	}
 	return e
+}
+
+func MkSelectExpr(operand *exprpb.Expr, field string) *exprpb.Expr {
+	return &exprpb.Expr{
+		ExprKind: &exprpb.Expr_SelectExpr{
+			SelectExpr: &exprpb.Expr_Select{
+				Operand: operand,
+				Field:   field,
+			},
+		},
+	}
 }

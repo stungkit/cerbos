@@ -1,5 +1,5 @@
 [build]
-  publish = "docs/build"
+publish = "docs/build"
 
 # Only required until Antora LFS support lands. https://gitlab.com/antora/antora/-/issues/185
 
@@ -66,10 +66,106 @@ to = "/cerbos/prerelease/:module/_images/:splat"
 status = 302
 force = true
 
+
+[[redirects]]
+from = "/cerbos/0.35.0/_images/*"
+to = "/cerbos/prerelease/_images/:splat"
+status = 302
+force = true
+
+[[redirects]]
+from = "/cerbos/0.35.0/:module/_images/*"
+to = "/cerbos/prerelease/:module/_images/:splat"
+status = 302
+force = true
+
+[[redirects]]
+from = "/cerbos/0.35.1/_images/*"
+to = "/cerbos/prerelease/_images/:splat"
+status = 302
+force = true
+
+[[redirects]]
+from = "/cerbos/0.35.1/:module/_images/*"
+to = "/cerbos/prerelease/:module/_images/:splat"
+status = 302
+force = true
+
+[[redirects]]
+from = "/cerbos/0.36.0/_images/*"
+to = "/cerbos/prerelease/_images/:splat"
+status = 302
+force = true
+
+[[redirects]]
+from = "/cerbos/0.36.0/:module/_images/*"
+to = "/cerbos/prerelease/:module/_images/:splat"
+status = 302
+force = true
+
+[[redirects]]
+from = "/cerbos/0.37.0/_images/*"
+to = "/cerbos/prerelease/_images/:splat"
+status = 302
+force = true
+
+[[redirects]]
+from = "/cerbos/0.37.0/:module/_images/*"
+to = "/cerbos/prerelease/:module/_images/:splat"
+status = 302
+force = true
+
+[[redirects]]
+from = "/cerbos/0.38.0/_images/*"
+to = "/cerbos/prerelease/_images/:splat"
+status = 302
+force = true
+
+[[redirects]]
+from = "/cerbos/0.38.0/:module/_images/*"
+to = "/cerbos/prerelease/:module/_images/:splat"
+status = 302
+force = true
+
+[[redirects]]
+from = "/cerbos/0.38.1/_images/*"
+to = "/cerbos/prerelease/_images/:splat"
+status = 302
+force = true
+
+[[redirects]]
+from = "/cerbos/0.38.1/:module/_images/*"
+to = "/cerbos/prerelease/:module/_images/:splat"
+status = 302
+force = true
+
+[[redirects]]
+from = "/cerbos/0.39.0/_images/*"
+to = "/cerbos/prerelease/_images/:splat"
+status = 302
+force = true
+
+[[redirects]]
+from = "/cerbos/0.39.0/:module/_images/*"
+to = "/cerbos/prerelease/:module/_images/:splat"
+status = 302
+force = true
+
+[[redirects]]
+from = "/cerbos/0.40.0/_images/*"
+to = "/cerbos/prerelease/_images/:splat"
+status = 302
+force = true
+
+[[redirects]]
+from = "/cerbos/0.40.0/:module/_images/*"
+to = "/cerbos/prerelease/:module/_images/:splat"
+status = 302
+force = true
 # IMG_REDIRECTS_END
 
 # This has to be at the bottom for the above redirects to work
 [[redirects]]
 from = "/cerbos/:version/*"
 to = "/cerbos/latest/:splat"
-status = 404
+status = 301

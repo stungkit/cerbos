@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package policy
@@ -35,8 +35,12 @@ func Validate(p *policyv1.Policy, sc parser.SourceCtx) error {
 		return validateResourcePolicy(pt.ResourcePolicy, sc)
 	case *policyv1.Policy_PrincipalPolicy:
 		return validatePrincipalPolicy(pt.PrincipalPolicy, sc)
+	case *policyv1.Policy_RolePolicy:
+		return nil
 	case *policyv1.Policy_DerivedRoles:
 		return validateDerivedRoles(pt.DerivedRoles, sc)
+	case *policyv1.Policy_ExportConstants:
+		return validateExportConstants(p, sc)
 	case *policyv1.Policy_ExportVariables:
 		return validateExportVariables(p, sc)
 	default:
@@ -143,6 +147,15 @@ func validateDerivedRoles(dr *policyv1.DerivedRoles, sc parser.SourceCtx) (outEr
 	}
 
 	return
+}
+
+func validateExportConstants(p *policyv1.Policy, sc parser.SourceCtx) error {
+	if len(p.Variables) > 0 { //nolint:staticcheck
+		pos, context := sc.PositionAndContextForProtoPath("variables")
+		return newValidationError("export constants policies do not support the deprecated top-level variables field", pos, context)
+	}
+
+	return nil
 }
 
 func validateExportVariables(p *policyv1.Policy, sc parser.SourceCtx) error {

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package disk
@@ -43,7 +43,7 @@ func watchDir(ctx context.Context, dir string, idx index.Index, sub *storage.Sub
 		SubscriptionManager: sub,
 		cooldownPeriod:      cooldownPeriod,
 		eventBatch:          make(map[string]struct{}),
-		watchChan:           make(chan notify.EventInfo, 8), //nolint:gomnd
+		watchChan:           make(chan notify.EventInfo, 8), //nolint:mnd
 	}
 
 	if err := notify.Watch(filepath.Join(dir, "..."), dw.watchChan, notify.All); err != nil {
@@ -122,6 +122,7 @@ func (dw *dirWatch) triggerUpdate() {
 			return
 		}
 
+		ts := time.Now().UnixMilli()
 		batch := dw.eventBatch
 		dw.eventBatch = make(map[string]struct{})
 		dw.mu.Unlock()
@@ -173,6 +174,8 @@ func (dw *dirWatch) triggerUpdate() {
 
 		if errCount > 0 {
 			metrics.Add(context.Background(), metrics.StoreSyncErrorCount(), int64(errCount), metrics.DriverKey(DriverName))
+		} else {
+			metrics.Record(context.Background(), metrics.StoreLastSuccessfulRefresh(), ts, metrics.DriverKey(DriverName))
 		}
 	}
 }

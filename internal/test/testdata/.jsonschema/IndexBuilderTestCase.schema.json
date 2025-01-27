@@ -57,10 +57,22 @@
             "$ref": "#/definitions/cerbos.runtime.v1.IndexBuildErrors.MissingImport"
           }
         },
+        "missingScopeDetails": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/cerbos.runtime.v1.IndexBuildErrors.MissingScope"
+          }
+        },
         "missingScopes": {
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "scopePermissionsConflicts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/cerbos.runtime.v1.IndexBuildErrors.ScopePermissionsConflicts"
           }
         }
       }
@@ -137,6 +149,30 @@
         },
         "position": {
           "$ref": "#/definitions/cerbos.source.v1.Position"
+        }
+      }
+    },
+    "cerbos.runtime.v1.IndexBuildErrors.MissingScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "descendants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missingPolicy": {
+          "type": "string"
+        }
+      }
+    },
+    "cerbos.runtime.v1.IndexBuildErrors.ScopePermissionsConflicts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "type": "string"
         }
       }
     },

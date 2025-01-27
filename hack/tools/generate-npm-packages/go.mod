@@ -1,8 +1,8 @@
 module github.com/cerbos/cerbos/hack/tools/generate-npm-packages
 
-go 1.21
+go 1.23
 
-toolchain go1.21.1
+toolchain go1.23.5
 
 require (
 	go.uber.org/multierr v1.11.0

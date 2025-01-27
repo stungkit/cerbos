@@ -6,7 +6,7 @@
       "summary": {
         "overallResult": "RESULT_ERRORED"
       },
-      "error": "failed to load test fixtures from testdata: validation error:\n - principals[\"invalid\"].id: value is required [required]\n - principals[\"invalid\"].roles: value is required [required]",
+      "error": "Failed to load the test suite: invalid test \"John and his leave request\": principal \"john\" not found",
       "description": "Tests for verifying something"
     }
   ],

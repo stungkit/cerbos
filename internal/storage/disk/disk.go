@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package disk
@@ -8,14 +8,18 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"time"
 
+	"go.uber.org/zap"
+
+	responsev1 "github.com/cerbos/cerbos/api/genpb/cerbos/response/v1"
 	"github.com/cerbos/cerbos/internal/config"
 	"github.com/cerbos/cerbos/internal/namer"
+	"github.com/cerbos/cerbos/internal/observability/metrics"
 	"github.com/cerbos/cerbos/internal/policy"
 	"github.com/cerbos/cerbos/internal/storage"
 	"github.com/cerbos/cerbos/internal/storage/index"
 	"github.com/cerbos/cerbos/internal/util"
-	"go.uber.org/zap"
 )
 
 const DriverName = "disk"
@@ -65,6 +69,8 @@ func NewStore(ctx context.Context, conf *Conf) (*Store, error) {
 		idx:                 idx,
 		SubscriptionManager: storage.NewSubscriptionManager(ctx),
 	}
+
+	metrics.Record(ctx, metrics.StoreLastSuccessfulRefresh(), time.Now().UnixMilli(), metrics.DriverKey(DriverName))
 	if conf.WatchForChanges && !util.IsArchiveFile(dir) {
 		if err := watchDir(ctx, dir, s.idx, s.SubscriptionManager, defaultCooldownPeriod); err != nil {
 			return nil, err
@@ -95,6 +101,14 @@ func (s *Store) GetFirstMatch(_ context.Context, candidates []namer.ModuleID) (*
 	return s.idx.GetFirstMatch(candidates)
 }
 
+func (s *Store) GetAll(ctx context.Context) ([]*policy.CompilationUnit, error) {
+	return s.idx.GetAll(ctx)
+}
+
+func (s *Store) GetAllMatching(_ context.Context, modIDs []namer.ModuleID) ([]*policy.CompilationUnit, error) {
+	return s.idx.GetAllMatching(modIDs)
+}
+
 func (s *Store) GetCompilationUnits(_ context.Context, ids ...namer.ModuleID) (map[namer.ModuleID]*policy.CompilationUnit, error) {
 	return s.idx.GetCompilationUnits(ids...)
 }
@@ -103,8 +117,12 @@ func (s *Store) GetDependents(_ context.Context, ids ...namer.ModuleID) (map[nam
 	return s.idx.GetDependents(ids...)
 }
 
-func (s *Store) ListPolicyIDs(ctx context.Context, _ storage.ListPolicyIDsParams) ([]string, error) {
-	return s.idx.ListPolicyIDs(ctx)
+func (s *Store) InspectPolicies(ctx context.Context, params storage.ListPolicyIDsParams) (map[string]*responsev1.InspectPoliciesResponse_Result, error) {
+	return s.idx.InspectPolicies(ctx, params.IDs...)
+}
+
+func (s *Store) ListPolicyIDs(ctx context.Context, params storage.ListPolicyIDsParams) ([]string, error) {
+	return s.idx.ListPolicyIDs(ctx, params.IDs...)
 }
 
 func (s *Store) ListSchemaIDs(ctx context.Context) ([]string, error) {
@@ -130,6 +148,7 @@ func (s *Store) Reload(ctx context.Context) error {
 	}
 	s.NotifySubscribers(evts...)
 
+	metrics.Record(ctx, metrics.StoreLastSuccessfulRefresh(), time.Now().UnixMilli(), metrics.DriverKey(DriverName))
 	return nil
 }
 

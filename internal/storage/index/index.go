@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package index
@@ -16,12 +16,15 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	policyv1 "github.com/cerbos/cerbos/api/genpb/cerbos/policy/v1"
+	responsev1 "github.com/cerbos/cerbos/api/genpb/cerbos/response/v1"
+	"github.com/cerbos/cerbos/internal/inspect"
 	"github.com/cerbos/cerbos/internal/namer"
 	"github.com/cerbos/cerbos/internal/observability/logging"
 	"github.com/cerbos/cerbos/internal/observability/metrics"
 	"github.com/cerbos/cerbos/internal/parser"
 	"github.com/cerbos/cerbos/internal/policy"
 	"github.com/cerbos/cerbos/internal/storage"
+	"github.com/cerbos/cerbos/internal/util"
 )
 
 var (
@@ -44,6 +47,8 @@ type Index interface {
 	io.Closer
 	storage.Instrumented
 	GetFirstMatch([]namer.ModuleID) (*policy.CompilationUnit, error)
+	GetAll(context.Context) ([]*policy.CompilationUnit, error)
+	GetAllMatching([]namer.ModuleID) ([]*policy.CompilationUnit, error)
 	GetCompilationUnits(...namer.ModuleID) (map[namer.ModuleID]*policy.CompilationUnit, error)
 	GetDependents(...namer.ModuleID) (map[namer.ModuleID][]namer.ModuleID, error)
 	AddOrUpdate(Entry) (storage.Event, error)
@@ -51,11 +56,12 @@ type Index interface {
 	GetFiles() []string
 	GetAllCompilationUnits(context.Context) <-chan *policy.CompilationUnit
 	Clear() error
-	ListPolicyIDs(context.Context) ([]string, error)
+	InspectPolicies(context.Context, ...string) (map[string]*responsev1.InspectPoliciesResponse_Result, error)
+	ListPolicyIDs(context.Context, ...string) ([]string, error)
 	ListSchemaIDs(context.Context) ([]string, error)
 	LoadSchema(context.Context, string) (io.ReadCloser, error)
 	LoadPolicy(context.Context, ...string) ([]*policy.Wrapper, error)
-	Reload(ctx context.Context) ([]storage.Event, error)
+	Reload(context.Context) ([]storage.Event, error)
 }
 
 type index struct {
@@ -88,48 +94,46 @@ func (idx *index) GetFiles() []string {
 }
 
 func (idx *index) GetFirstMatch(candidates []namer.ModuleID) (*policy.CompilationUnit, error) {
-	idx.mu.RLock()
-	defer idx.mu.RUnlock()
-
-	for _, id := range candidates {
-		if _, ok := idx.modIDToFile[id]; !ok {
-			continue
-		}
-
-		p, sc, err := idx.loadPolicy(id)
+	for _, modID := range candidates {
+		res, err := idx.GetCompilationUnits(modID)
 		if err != nil {
 			return nil, err
 		}
 
-		policyKey := namer.PolicyKey(p)
-
-		cu := &policy.CompilationUnit{
-			ModID:          id,
-			Definitions:    map[namer.ModuleID]*policyv1.Policy{id: p},
-			SourceContexts: map[namer.ModuleID]parser.SourceCtx{id: sc},
-		}
-
-		// add dependencies
-		if err := idx.addDepsToCompilationUnit(cu, id); err != nil {
-			return nil, fmt.Errorf("failed to load dependencies of %s: %w", policyKey, err)
-		}
-
-		// load ancestors of the policy
-		for _, ancestor := range cu.Ancestors() {
-			p, sc, err := idx.loadPolicy(ancestor)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load ancestor %q of scoped policy %s: %w", ancestor.String(), policyKey, err)
-			}
-			cu.AddDefinition(ancestor, p, sc)
-			if err := idx.addDepsToCompilationUnit(cu, ancestor); err != nil {
-				return nil, fmt.Errorf("failed to load dependencies of ancestor %q of %s: %w", ancestor.String(), policyKey, err)
+		if len(res) > 0 {
+			for _, cu := range res {
+				return cu, nil
 			}
 		}
-
-		return cu, nil
 	}
 
 	return nil, nil
+}
+
+func (idx *index) GetAll(ctx context.Context) ([]*policy.CompilationUnit, error) {
+	res := []*policy.CompilationUnit{}
+
+	for cu := range idx.GetAllCompilationUnits(ctx) {
+		res = append(res, cu)
+	}
+
+	return res, nil
+}
+
+func (idx *index) GetAllMatching(modIDs []namer.ModuleID) ([]*policy.CompilationUnit, error) {
+	cus, err := idx.GetCompilationUnits(modIDs...)
+	if err != nil {
+		return nil, err
+	}
+
+	res := make([]*policy.CompilationUnit, len(cus))
+	var i int
+	for _, cu := range cus {
+		res[i] = cu
+		i++
+	}
+
+	return res, nil
 }
 
 func (idx *index) GetCompilationUnits(ids ...namer.ModuleID) (map[namer.ModuleID]*policy.CompilationUnit, error) {
@@ -163,7 +167,6 @@ func (idx *index) GetCompilationUnits(ids ...namer.ModuleID) (map[namer.ModuleID
 			return nil, fmt.Errorf("failed to load dependencies of %s: %w", policyKey, err)
 		}
 
-		// load ancestors of the policy
 		for _, ancestor := range cu.Ancestors() {
 			p, sc, err := idx.loadPolicy(ancestor)
 			if err != nil {
@@ -320,7 +323,7 @@ func (idx *index) AddOrUpdate(entry Entry) (evt storage.Event, err error) {
 }
 
 func (idx *index) addDep(child, parent namer.ModuleID) {
-	// When we compile a policy, we need to load the dependencies (imported variables and derived roles).
+	// When we compile a policy, we need to load the dependencies (imported constants, variables, and derived roles).
 	if _, ok := idx.dependencies[child]; !ok {
 		idx.dependencies[child] = make(map[namer.ModuleID]struct{})
 	}
@@ -447,13 +450,47 @@ func (idx *index) Inspect() map[string]meta {
 	return entries
 }
 
-func (idx *index) ListPolicyIDs(_ context.Context) ([]string, error) {
+func (idx *index) InspectPolicies(ctx context.Context, file ...string) (map[string]*responsev1.InspectPoliciesResponse_Result, error) {
+	var files []string
+	if len(file) == 0 {
+		var err error
+		if files, err = idx.ListPolicyIDs(ctx); err != nil {
+			return nil, fmt.Errorf("failed to list policies: %w", err)
+		}
+	} else {
+		files = file
+	}
+
+	ins := inspect.Policies()
+	if err := storage.BatchLoadPolicy(ctx, 1, idx.LoadPolicy, func(wp *policy.Wrapper) error {
+		return ins.Inspect(wp.Policy)
+	}, files...); err != nil {
+		return nil, fmt.Errorf("failed to load policy: %w", err)
+	}
+
+	return ins.Results(ctx, idx.LoadPolicy)
+}
+
+func (idx *index) ListPolicyIDs(_ context.Context, filteredFiles ...string) ([]string, error) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	entries := make([]string, 0, len(idx.modIDToFile))
+	filteredSize := len(filteredFiles)
+	var ss util.StringSet
+	if len(filteredFiles) > 0 {
+		ss = util.ToStringSet(filteredFiles)
+		filteredSize = len(ss)
+	}
+
+	entries := make([]string, 0, filteredSize)
 	for _, f := range idx.modIDToFile {
-		entries = append(entries, f)
+		if len(filteredFiles) > 0 {
+			if ss.Contains(f) {
+				entries = append(entries, f)
+			}
+		} else {
+			entries = append(entries, f)
+		}
 	}
 
 	sort.Strings(entries)

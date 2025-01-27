@@ -165,6 +165,86 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "policyId",
+            "description": "For blob, disk, git stores use file name (\u003cfilename\u003e.yaml). For mysql, postgres, sqlite3 use id (\u003ckind\u003e.\u003cname\u003e.\u003cversion\u003e) of the policy",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "multi"
+          }
+        ],
+        "tags": [
+          "CerbosAdminService"
+        ],
+        "security": [
+          {
+            "BasicAuth": []
+          }
+        ]
+      }
+    },
+    "/admin/policies/inspect": {
+      "get": {
+        "summary": "Inspect policies",
+        "operationId": "CerbosAdminService_InspectPolicies",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1InspectPoliciesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/googlerpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "includeDisabled",
+            "description": "Include disabled policies",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "nameRegexp",
+            "description": "Filter policies by name with regexp",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "scopeRegexp",
+            "description": "Filter policies by scope with regexp",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "versionRegexp",
+            "description": "Filter policies by version with regexp",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "policyId",
+            "description": "For blob, disk, git stores use file name (\u003cfilename\u003e.yaml). For mysql, postgres, sqlite3 use id (\u003ckind\u003e.\u003cname\u003e.\u003cversion\u003e) of the policy",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "multi"
           }
         ],
         "tags": [
@@ -921,11 +1001,11 @@
             "comment"
           ],
           "items": {
-            "type": "string",
-            "uniqueItems": true
+            "type": "string"
           },
           "description": "List of actions being performed on the resource.",
-          "minItems": 1
+          "minItems": 1,
+          "uniqueItems": true
         },
         "resource": {
           "$ref": "#/definitions/enginev1Resource"
@@ -946,11 +1026,11 @@
             "comment"
           ],
           "items": {
-            "type": "string",
-            "uniqueItems": true
+            "type": "string"
           },
           "description": "List of actions being performed on the resource.",
-          "minItems": 1
+          "minItems": 1,
+          "uniqueItems": true
         },
         "resource": {
           "$ref": "#/definitions/enginev1Resource"
@@ -1096,17 +1176,6 @@
         }
       }
     },
-    "ComponentVariable": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "expr": {
-          "type": "string"
-        }
-      }
-    },
     "ExpressionOperand": {
       "type": "object",
       "properties": {
@@ -1118,6 +1187,79 @@
           "type": "string"
         }
       }
+    },
+    "InspectPoliciesResponseAttribute": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/InspectPoliciesResponseAttributeKind",
+          "description": "Kind of the attribute being referenced."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the attribute being referenced."
+        }
+      }
+    },
+    "InspectPoliciesResponseAttributeKind": {
+      "type": "string",
+      "enum": [
+        "KIND_UNSPECIFIED",
+        "KIND_PRINCIPAL_ATTRIBUTE",
+        "KIND_RESOURCE_ATTRIBUTE"
+      ],
+      "default": "KIND_UNSPECIFIED"
+    },
+    "InspectPoliciesResponseConstantKind": {
+      "type": "string",
+      "enum": [
+        "KIND_UNSPECIFIED",
+        "KIND_EXPORTED",
+        "KIND_IMPORTED",
+        "KIND_LOCAL",
+        "KIND_UNDEFINED",
+        "KIND_UNKNOWN"
+      ],
+      "default": "KIND_UNSPECIFIED"
+    },
+    "InspectPoliciesResponseDerivedRole": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Derived role name defined in the policy."
+        },
+        "kind": {
+          "$ref": "#/definitions/InspectPoliciesResponseDerivedRoleKind",
+          "description": "Kind of the derived role defined in the policy."
+        },
+        "source": {
+          "type": "string",
+          "description": "Source of the derived role defined in the policy."
+        }
+      }
+    },
+    "InspectPoliciesResponseDerivedRoleKind": {
+      "type": "string",
+      "enum": [
+        "KIND_UNSPECIFIED",
+        "KIND_UNDEFINED",
+        "KIND_EXPORTED",
+        "KIND_IMPORTED"
+      ],
+      "default": "KIND_UNSPECIFIED"
+    },
+    "InspectPoliciesResponseVariableKind": {
+      "type": "string",
+      "enum": [
+        "KIND_UNSPECIFIED",
+        "KIND_EXPORTED",
+        "KIND_IMPORTED",
+        "KIND_LOCAL",
+        "KIND_UNDEFINED",
+        "KIND_UNKNOWN"
+      ],
+      "default": "KIND_UNSPECIFIED"
     },
     "ListAuditLogEntriesRequestTimeRange": {
       "type": "object",
@@ -1184,19 +1326,6 @@
       },
       "description": "Unique resource instance ID supplied in the request."
     },
-    "OutputFailureMismatchedValue": {
-      "type": "object",
-      "properties": {
-        "expected": {},
-        "actual": {}
-      }
-    },
-    "OutputFailureMissingValue": {
-      "type": "object",
-      "properties": {
-        "expected": {}
-      }
-    },
     "OutputWhen": {
       "type": "object",
       "properties": {
@@ -1225,95 +1354,6 @@
       },
       "description": "CEL expression"
     },
-    "PlaygroundEvaluateResponseEvalResult": {
-      "type": "object",
-      "properties": {
-        "action": {
-          "type": "string"
-        },
-        "effect": {
-          "$ref": "#/definitions/v1Effect"
-        },
-        "policy": {
-          "type": "string"
-        },
-        "effectiveDerivedRoles": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "validationErrors": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1ValidationError"
-          }
-        }
-      }
-    },
-    "PlaygroundEvaluateResponseEvalResultList": {
-      "type": "object",
-      "properties": {
-        "results": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/PlaygroundEvaluateResponseEvalResult"
-          }
-        },
-        "effectiveDerivedRoles": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "validationErrors": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1ValidationError"
-          }
-        },
-        "outputs": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1OutputEntry"
-          }
-        }
-      }
-    },
-    "PlaygroundFailureError": {
-      "type": "object",
-      "properties": {
-        "file": {
-          "type": "string"
-        },
-        "error": {
-          "type": "string"
-        },
-        "details": {
-          "$ref": "#/definitions/PlaygroundFailureErrorDetails"
-        }
-      }
-    },
-    "PlaygroundFailureErrorDetails": {
-      "type": "object",
-      "properties": {
-        "line": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "column": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "context": {
-          "type": "string"
-        }
-      }
-    },
     "SchemasIgnoreWhen": {
       "type": "object",
       "properties": {
@@ -1324,255 +1364,6 @@
           }
         }
       }
-    },
-    "TestResultsDetails": {
-      "type": "object",
-      "properties": {
-        "result": {
-          "$ref": "#/definitions/TestResultsResult"
-        },
-        "failure": {
-          "$ref": "#/definitions/TestResultsFailure"
-        },
-        "error": {
-          "type": "string"
-        },
-        "success": {
-          "$ref": "#/definitions/TestResultsSuccess"
-        },
-        "engineTrace": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1Trace"
-          }
-        }
-      }
-    },
-    "TestResultsFailure": {
-      "type": "object",
-      "properties": {
-        "expected": {
-          "$ref": "#/definitions/v1Effect"
-        },
-        "actual": {
-          "$ref": "#/definitions/v1Effect"
-        },
-        "outputs": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/TestResultsOutputFailure"
-          }
-        }
-      }
-    },
-    "TestResultsOutputFailure": {
-      "type": "object",
-      "properties": {
-        "src": {
-          "type": "string"
-        },
-        "mismatched": {
-          "$ref": "#/definitions/OutputFailureMismatchedValue"
-        },
-        "missing": {
-          "$ref": "#/definitions/OutputFailureMissingValue"
-        }
-      }
-    },
-    "TestResultsResult": {
-      "type": "string",
-      "enum": [
-        "RESULT_UNSPECIFIED",
-        "RESULT_SKIPPED",
-        "RESULT_PASSED",
-        "RESULT_FAILED",
-        "RESULT_ERRORED"
-      ],
-      "default": "RESULT_UNSPECIFIED"
-    },
-    "TestResultsSuccess": {
-      "type": "object",
-      "properties": {
-        "effect": {
-          "$ref": "#/definitions/v1Effect"
-        },
-        "outputs": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1OutputEntry"
-          }
-        }
-      }
-    },
-    "TestResultsSuite": {
-      "type": "object",
-      "properties": {
-        "file": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "principals": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1TestResultsPrincipal"
-          }
-        },
-        "summary": {
-          "$ref": "#/definitions/TestResultsSummary"
-        },
-        "error": {
-          "type": "string"
-        },
-        "testCases": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/TestResultsTestCase"
-          }
-        },
-        "description": {
-          "type": "string"
-        }
-      }
-    },
-    "TestResultsSummary": {
-      "type": "object",
-      "properties": {
-        "overallResult": {
-          "$ref": "#/definitions/TestResultsResult"
-        },
-        "testsCount": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "resultCounts": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/TestResultsTally"
-          }
-        }
-      }
-    },
-    "TestResultsTally": {
-      "type": "object",
-      "properties": {
-        "result": {
-          "$ref": "#/definitions/TestResultsResult"
-        },
-        "count": {
-          "type": "integer",
-          "format": "int64"
-        }
-      }
-    },
-    "TestResultsTestCase": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "principals": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1TestResultsPrincipal"
-          }
-        }
-      }
-    },
-    "TraceComponent": {
-      "type": "object",
-      "properties": {
-        "kind": {
-          "$ref": "#/definitions/TraceComponentKind"
-        },
-        "action": {
-          "type": "string"
-        },
-        "derivedRole": {
-          "type": "string"
-        },
-        "expr": {
-          "type": "string"
-        },
-        "index": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "policy": {
-          "type": "string"
-        },
-        "resource": {
-          "type": "string"
-        },
-        "rule": {
-          "type": "string"
-        },
-        "scope": {
-          "type": "string"
-        },
-        "variable": {
-          "$ref": "#/definitions/ComponentVariable"
-        },
-        "output": {
-          "type": "string"
-        }
-      }
-    },
-    "TraceComponentKind": {
-      "type": "string",
-      "enum": [
-        "KIND_UNSPECIFIED",
-        "KIND_ACTION",
-        "KIND_CONDITION_ALL",
-        "KIND_CONDITION_ANY",
-        "KIND_CONDITION_NONE",
-        "KIND_CONDITION",
-        "KIND_DERIVED_ROLE",
-        "KIND_EXPR",
-        "KIND_POLICY",
-        "KIND_RESOURCE",
-        "KIND_RULE",
-        "KIND_SCOPE",
-        "KIND_VARIABLE",
-        "KIND_VARIABLES",
-        "KIND_OUTPUT"
-      ],
-      "default": "KIND_UNSPECIFIED"
-    },
-    "TraceEvent": {
-      "type": "object",
-      "properties": {
-        "status": {
-          "$ref": "#/definitions/TraceEventStatus"
-        },
-        "effect": {
-          "$ref": "#/definitions/v1Effect"
-        },
-        "error": {
-          "type": "string"
-        },
-        "message": {
-          "type": "string"
-        },
-        "result": {}
-      }
-    },
-    "TraceEventStatus": {
-      "type": "string",
-      "enum": [
-        "STATUS_UNSPECIFIED",
-        "STATUS_ACTIVATED",
-        "STATUS_SKIPPED"
-      ],
-      "default": "STATUS_UNSPECIFIED"
     },
     "ValidationErrorSource": {
       "type": "string",
@@ -1622,11 +1413,11 @@
             "user"
           ],
           "items": {
-            "type": "string",
-            "uniqueItems": true
+            "type": "string"
           },
           "description": "Roles assigned to this principal from your identity management system.",
-          "minItems": 1
+          "minItems": 1,
+          "uniqueItems": true
         },
         "attr": {
           "type": "object",
@@ -1704,21 +1495,6 @@
             "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
-        }
-      }
-    },
-    "policyv1TestResults": {
-      "type": "object",
-      "properties": {
-        "suites": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/TestResultsSuite"
-          }
-        },
-        "summary": {
-          "$ref": "#/definitions/TestResultsSummary"
         }
       }
     },
@@ -1800,7 +1576,7 @@
             "$ref": "#/definitions/v1Policy"
           },
           "description": "List of policies.",
-          "maxItems": 10,
+          "maxItems": 100,
           "minItems": 1
         }
       },
@@ -1829,7 +1605,7 @@
             "$ref": "#/definitions/schemav1Schema"
           },
           "description": "List of schemas.",
-          "maxItems": 10,
+          "maxItems": 100,
           "minItems": 1
         }
       },
@@ -1962,11 +1738,11 @@
           ],
           "items": {
             "type": "object",
-            "$ref": "#/definitions/CheckResourceBatchRequestBatchEntry",
-            "uniqueItems": true
+            "$ref": "#/definitions/CheckResourceBatchRequestBatchEntry"
           },
           "description": "List of resources and actions.",
-          "minItems": 1
+          "minItems": 1,
+          "uniqueItems": true
         },
         "auxData": {
           "$ref": "#/definitions/cerbosrequestv1AuxData"
@@ -2048,11 +1824,11 @@
             "comment"
           ],
           "items": {
-            "type": "string",
-            "uniqueItems": true
+            "type": "string"
           },
           "description": "List of actions being performed on the set of resources.",
-          "minItems": 1
+          "minItems": 1,
+          "uniqueItems": true
         },
         "principal": {
           "$ref": "#/definitions/enginev1Principal"
@@ -2222,11 +1998,11 @@
           ],
           "items": {
             "type": "object",
-            "$ref": "#/definitions/CheckResourcesRequestResourceEntry",
-            "uniqueItems": true
+            "$ref": "#/definitions/CheckResourcesRequestResourceEntry"
           },
           "description": "List of resources and actions.",
-          "minItems": 1
+          "minItems": 1,
+          "uniqueItems": true
         },
         "auxData": {
           "$ref": "#/definitions/cerbosrequestv1AuxData"
@@ -2281,6 +2057,21 @@
         },
         "script": {
           "type": "string"
+        }
+      }
+    },
+    "v1Constants": {
+      "type": "object",
+      "properties": {
+        "import": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "local": {
+          "type": "object",
+          "additionalProperties": {}
         }
       }
     },
@@ -2395,6 +2186,9 @@
         },
         "variables": {
           "$ref": "#/definitions/v1Variables"
+        },
+        "constants": {
+          "$ref": "#/definitions/v1Constants"
         }
       }
     },
@@ -2462,6 +2256,18 @@
       },
       "description": "Enable policy response"
     },
+    "v1ExportConstants": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "definitions": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      }
+    },
     "v1ExportVariables": {
       "type": "object",
       "properties": {
@@ -2475,22 +2281,6 @@
           }
         }
       }
-    },
-    "v1File": {
-      "type": "object",
-      "properties": {
-        "fileName": {
-          "type": "string"
-        },
-        "contents": {
-          "type": "string",
-          "format": "byte"
-        }
-      },
-      "required": [
-        "fileName",
-        "contents"
-      ]
     },
     "v1GetPolicyResponse": {
       "type": "object",
@@ -2517,6 +2307,115 @@
         }
       },
       "description": "Get schema(s) response"
+    },
+    "v1InspectPoliciesResponse": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/v1InspectPoliciesResponseResult"
+          }
+        }
+      },
+      "description": "Inspect policies response"
+    },
+    "v1InspectPoliciesResponseConstant": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Constant name defined in the policy."
+        },
+        "value": {
+          "description": "Raw value of the constant defined in the policy."
+        },
+        "kind": {
+          "$ref": "#/definitions/InspectPoliciesResponseConstantKind",
+          "description": "Kind of the constant defined in the policy."
+        },
+        "source": {
+          "type": "string",
+          "description": "Source of the constant defined in the policy. Only exists if the kind is imported."
+        },
+        "used": {
+          "type": "boolean",
+          "description": "Whether the constant is used in a condition."
+        }
+      }
+    },
+    "v1InspectPoliciesResponseResult": {
+      "type": "object",
+      "properties": {
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Actions defined in the policy."
+        },
+        "variables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1InspectPoliciesResponseVariable"
+          },
+          "description": "Variables referenced in the policy."
+        },
+        "policyId": {
+          "type": "string",
+          "description": "For blob, disk, and git stores policy ID is the file name. For other stores it is \u003ckind\u003e.\u003cname\u003e.\u003cversion\u003e/\u003cscope\u003e."
+        },
+        "derivedRoles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/InspectPoliciesResponseDerivedRole"
+          },
+          "description": "Derived roles referenced in the policy."
+        },
+        "attributes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/InspectPoliciesResponseAttribute"
+          },
+          "description": "Attributes referenced in the policy."
+        },
+        "constants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1InspectPoliciesResponseConstant"
+          },
+          "description": "Constants referenced in the policy."
+        }
+      }
+    },
+    "v1InspectPoliciesResponseVariable": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Variable name defined in the policy."
+        },
+        "value": {
+          "type": "string",
+          "description": "Raw value of the variable defined in the policy."
+        },
+        "kind": {
+          "$ref": "#/definitions/InspectPoliciesResponseVariableKind",
+          "description": "Kind of the variable defined in the policy."
+        },
+        "source": {
+          "type": "string",
+          "description": "Source of the variable defined in the policy. Only exists if the kind is imported."
+        },
+        "used": {
+          "type": "boolean",
+          "description": "Whether the variable is used in a condition."
+        }
+      }
     },
     "v1ListAuditLogEntriesRequestKind": {
       "type": "string",
@@ -2863,97 +2762,6 @@
       },
       "description": "Metadata about request evaluation."
     },
-    "v1PlaygroundEvaluateResponse": {
-      "type": "object",
-      "properties": {
-        "playgroundId": {
-          "type": "string"
-        },
-        "failure": {
-          "$ref": "#/definitions/v1PlaygroundFailure"
-        },
-        "success": {
-          "$ref": "#/definitions/PlaygroundEvaluateResponseEvalResultList"
-        }
-      },
-      "description": "Playground evaluate response"
-    },
-    "v1PlaygroundFailure": {
-      "type": "object",
-      "properties": {
-        "errors": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/PlaygroundFailureError"
-          }
-        }
-      },
-      "description": "Playground response"
-    },
-    "v1PlaygroundProxyResponse": {
-      "type": "object",
-      "properties": {
-        "playgroundId": {
-          "type": "string"
-        },
-        "failure": {
-          "$ref": "#/definitions/v1PlaygroundFailure"
-        },
-        "checkResourceSet": {
-          "$ref": "#/definitions/v1CheckResourceSetResponse"
-        },
-        "checkResourceBatch": {
-          "$ref": "#/definitions/v1CheckResourceBatchResponse"
-        },
-        "planResources": {
-          "$ref": "#/definitions/v1PlanResourcesResponse"
-        },
-        "checkResources": {
-          "$ref": "#/definitions/v1CheckResourcesResponse"
-        }
-      },
-      "description": "Playground proxy response"
-    },
-    "v1PlaygroundTestResponse": {
-      "type": "object",
-      "properties": {
-        "playgroundId": {
-          "type": "string"
-        },
-        "failure": {
-          "$ref": "#/definitions/v1PlaygroundFailure"
-        },
-        "success": {
-          "$ref": "#/definitions/v1PlaygroundTestResponseTestResults"
-        }
-      },
-      "description": "Playground test response"
-    },
-    "v1PlaygroundTestResponseTestResults": {
-      "type": "object",
-      "properties": {
-        "results": {
-          "$ref": "#/definitions/policyv1TestResults"
-        }
-      }
-    },
-    "v1PlaygroundValidateResponse": {
-      "type": "object",
-      "properties": {
-        "playgroundId": {
-          "type": "string"
-        },
-        "failure": {
-          "$ref": "#/definitions/v1PlaygroundFailure"
-        },
-        "success": {
-          "type": "object",
-          "properties": {}
-        }
-      },
-      "description": "Playground validate response"
-    },
     "v1Policy": {
       "type": "object",
       "properties": {
@@ -2980,6 +2788,12 @@
         },
         "exportVariables": {
           "$ref": "#/definitions/v1ExportVariables"
+        },
+        "rolePolicy": {
+          "$ref": "#/definitions/v1RolePolicy"
+        },
+        "exportConstants": {
+          "$ref": "#/definitions/v1ExportConstants"
         },
         "variables": {
           "type": "object",
@@ -3013,6 +2827,12 @@
         },
         "variables": {
           "$ref": "#/definitions/v1Variables"
+        },
+        "scopePermissions": {
+          "$ref": "#/definitions/v1ScopePermissions"
+        },
+        "constants": {
+          "$ref": "#/definitions/v1Constants"
         }
       }
     },
@@ -3085,6 +2905,12 @@
         },
         "variables": {
           "$ref": "#/definitions/v1Variables"
+        },
+        "scopePermissions": {
+          "$ref": "#/definitions/v1ScopePermissions"
+        },
+        "constants": {
+          "$ref": "#/definitions/v1Constants"
         }
       }
     },
@@ -3190,6 +3016,50 @@
         }
       }
     },
+    "v1RolePolicy": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "parentRoles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "scope": {
+          "type": "string"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1RoleRule"
+          }
+        },
+        "scopePermissions": {
+          "$ref": "#/definitions/v1ScopePermissions"
+        }
+      }
+    },
+    "v1RoleRule": {
+      "type": "object",
+      "properties": {
+        "resource": {
+          "type": "string"
+        },
+        "allowActions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "condition": {
+          "$ref": "#/definitions/v1Condition"
+        }
+      }
+    },
     "v1Schemas": {
       "type": "object",
       "properties": {
@@ -3212,6 +3082,15 @@
         }
       }
     },
+    "v1ScopePermissions": {
+      "type": "string",
+      "enum": [
+        "SCOPE_PERMISSIONS_UNSPECIFIED",
+        "SCOPE_PERMISSIONS_OVERRIDE_PARENT",
+        "SCOPE_PERMISSIONS_REQUIRE_PARENTAL_CONSENT_FOR_ALLOWS"
+      ],
+      "default": "SCOPE_PERMISSIONS_UNSPECIFIED"
+    },
     "v1ServerInfoResponse": {
       "type": "object",
       "properties": {
@@ -3233,62 +3112,6 @@
         "attributes": {
           "type": "object",
           "additionalProperties": {}
-        }
-      }
-    },
-    "v1TestResultsAction": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "details": {
-          "$ref": "#/definitions/TestResultsDetails"
-        }
-      }
-    },
-    "v1TestResultsPrincipal": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "resources": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1TestResultsResource"
-          }
-        }
-      }
-    },
-    "v1TestResultsResource": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "actions": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1TestResultsAction"
-          }
-        }
-      }
-    },
-    "v1Trace": {
-      "type": "object",
-      "properties": {
-        "components": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/TraceComponent"
-          }
-        },
-        "event": {
-          "$ref": "#/definitions/TraceEvent"
         }
       }
     },

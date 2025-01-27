@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package server
@@ -42,7 +42,7 @@ func RequestMetadataUnaryServerInterceptor(ctx context.Context, req any, info *g
 	newCtx := context.WithValue(ctx, methodNameCtxKey, info.FullMethod)
 
 	reqMeta := svc.ExtractRequestFields(info.FullMethod, req)
-	xffHeaders := make(map[string]any, 2) //nolint:gomnd
+	xffHeaders := make(map[string]any, 2) //nolint:mnd
 
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
 		xfh, ok := md["x-forwarded-host"]
@@ -57,7 +57,7 @@ func RequestMetadataUnaryServerInterceptor(ctx context.Context, req any, info *g
 	}
 
 	// Fields are key-value pairs. Because we are adding "meta" and "http", the expected length is 4.
-	fields := make(logging.Fields, 0, 4) //nolint:gomnd
+	fields := make(logging.Fields, 0, 4) //nolint:mnd
 
 	if len(xffHeaders) > 0 {
 		fields = append(fields, "http", xffHeaders)
@@ -152,9 +152,15 @@ func withCORS(conf *Conf, handler http.Handler) http.Handler {
 		return handler
 	}
 
+	allowedHeaders := conf.CORS.AllowedHeaders
+	if len(allowedHeaders) == 0 {
+		// The cors library's defaults don't include user-agent so we explicitly add it here.
+		allowedHeaders = []string{"accept", "content-type", "user-agent", "x-requested-with"}
+	}
+
 	opts := cors.Options{
 		AllowedOrigins: conf.CORS.AllowedOrigins,
-		AllowedHeaders: conf.CORS.AllowedHeaders,
+		AllowedHeaders: allowedHeaders,
 		AllowedMethods: []string{
 			http.MethodHead,
 			http.MethodGet,
@@ -184,7 +190,7 @@ func withCORS(conf *Conf, handler http.Handler) http.Handler {
 
 func handleUnknownServices(_ any, stream grpc.ServerStream) error {
 	errFn := func(msg string) error {
-		return status.Errorf(codes.Unimplemented, msg)
+		return status.Errorf(codes.Unimplemented, msg) //nolint:govet
 	}
 
 	method, ok := grpc.MethodFromServerStream(stream)
@@ -193,7 +199,7 @@ func handleUnknownServices(_ any, stream grpc.ServerStream) error {
 	}
 
 	parts := strings.Split(method, "/")
-	if len(parts) < 2 { //nolint:gomnd
+	if len(parts) < 2 { //nolint:mnd
 		return errFn(unknownSvc)
 	}
 
@@ -212,7 +218,7 @@ func handleRoutingError(ctx context.Context, mux *runtime.ServeMux, marshaler ru
 		errHandler := func(msg string) {
 			err := &runtime.HTTPStatusError{
 				HTTPStatus: httpStatus,
-				Err:        status.Errorf(codes.Unimplemented, msg),
+				Err:        status.Errorf(codes.Unimplemented, msg), //nolint:govet
 			}
 			runtime.DefaultHTTPErrorHandler(ctx, mux, marshaler, w, r, err)
 		}

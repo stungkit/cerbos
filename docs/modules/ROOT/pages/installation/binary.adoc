@@ -27,8 +27,37 @@ tar xvf {app-name}.tar.gz
 chmod +x {app-name}
 ----
 
+[NOTE]
+====
+
+Cerbos binaries are signed using link:https://www.sigstore.dev[sigstore] tools during the automated build process and the verification bundle is published along with the binary as `<BUNDLE>.bundle`.
+
+The following example demonstrates how to verify the Linux X86_64 bundle archive.
+
+[source,sh,subs="attributes,macros"]
+----
+# Download the bundle archive
+curl -L \
+  -o {app-name}_{app-version}_Linux_x86_64.tar.gz \
+  "{app-github-download-page}/{app-name}_{app-version}_Linux_x86_64.tar.gz"
+
+# Download the verification bundle
+curl -L \
+  -o {app-name}_{app-version}_Linux_x86_64.tar.gz.bundle \
+  "{app-github-download-page}/{app-name}_{app-version}_Linux_x86_64.tar.gz.bundle"
+
+# Verify the signature
+cosign verify-blob \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+  --certificate-identity="https://github.com/cerbos/cerbos/.github/workflows/release.yaml@refs/tags/v{app-version}" \
+  --bundle="{app-name}_{app-version}_Linux_x86_64.tar.gz.bundle" \
+  "{app-name}_{app-version}_Linux_x86_64.tar.gz"
+----
+
+====
+
 [id="linux-packages"]
-== Linux Packages
+== Linux packages
 
 Cerbos DEB and RPM packages can be installed on any Linux distribution that supports one of those package formats. You can download the appropriate package for your system from the link:{app-github-releases-page}[releases page].
 
@@ -74,3 +103,23 @@ npm install --save-dev cerbos cerbosctl
 ----
 
 Note that the npm packages rely on platform-specific optional dependencies, so make sure you don't omit these when installing dependencies (for example, don't pass the `--no-optional` flag to `npm`).
+
+[id="nix"]
+== Nix flake
+
+A link:https://nixos.wiki/wiki/Flakes[Nix flake] is available at https://github.com/cerbos/cerbos-flake.
+
+[source]
+----
+# Launch a Cerbos server
+nix run github:cerbos/cerbos-flake#cerbos -- server --set=storage.disk.directory=/path/to/policy_directory
+
+# Launch a REPL
+nix run github:cerbos/cerbos-flake#cerbos -- repl
+
+# Launch cerbosctl
+nix run github:cerbos/cerbos-flake#cerbosctl
+
+# Start a Nix shell session with cerbos and cerbosctl installed
+nix shell github:cerbos/cerbos-flake
+----

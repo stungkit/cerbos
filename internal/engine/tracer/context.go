@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package tracer
@@ -22,7 +22,9 @@ type Context interface {
 	StartExpr(expr string) Context
 	StartNthCondition(index int) Context
 	StartPolicy(name string) Context
+	StartRolePolicyScope(scope string) Context
 	StartResource(kind string) Context
+	StartRole(role string) Context
 	StartRule(name string) Context
 	StartScope(scope string) Context
 	StartVariable(name, expr string) Context
@@ -101,10 +103,24 @@ func (c *context) StartPolicy(name string) Context {
 	})
 }
 
+func (c *context) StartRolePolicyScope(scope string) Context {
+	return c.start(&enginev1.Trace_Component{
+		Kind:    enginev1.Trace_Component_KIND_ROLE_POLICY_SCOPE,
+		Details: &enginev1.Trace_Component_RolePolicyScope{RolePolicyScope: scope},
+	})
+}
+
 func (c *context) StartResource(kind string) Context {
 	return c.start(&enginev1.Trace_Component{
 		Kind:    enginev1.Trace_Component_KIND_RESOURCE,
 		Details: &enginev1.Trace_Component_Resource{Resource: kind},
+	})
+}
+
+func (c *context) StartRole(role string) Context {
+	return c.start(&enginev1.Trace_Component{
+		Kind:    enginev1.Trace_Component_KIND_ROLE,
+		Details: &enginev1.Trace_Component_Role{Role: role},
 	})
 }
 
@@ -255,7 +271,11 @@ func (c noopContext) StartNthCondition(int) Context { return c }
 
 func (c noopContext) StartPolicy(string) Context { return c }
 
+func (c noopContext) StartRolePolicyScope(string) Context { return c }
+
 func (c noopContext) StartResource(string) Context { return c }
+
+func (c noopContext) StartRole(string) Context { return c }
 
 func (c noopContext) StartRule(string) Context { return c }
 

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package namer_test
@@ -24,6 +24,11 @@ func TestFQN(t *testing.T) {
 			name:   "derived roles",
 			policy: func() *policyv1.Policy { return test.GenDerivedRoles(test.NoMod()) },
 			want:   "cerbos.derived_roles.my_derived_roles",
+		},
+		{
+			name:   "export constants",
+			policy: func() *policyv1.Policy { return test.GenExportConstants(test.NoMod()) },
+			want:   "cerbos.export_constants.my_constants",
 		},
 		{
 			name:   "export variables",
@@ -80,6 +85,11 @@ func TestFQNTree(t *testing.T) {
 			want:   []string{"cerbos.derived_roles.my_derived_roles"},
 		},
 		{
+			name:   "export constants",
+			policy: func() *policyv1.Policy { return test.GenExportConstants(test.NoMod()) },
+			want:   []string{"cerbos.export_constants.my_constants"},
+		},
+		{
 			name:   "export variables",
 			policy: func() *policyv1.Policy { return test.GenExportVariables(test.NoMod()) },
 			want:   []string{"cerbos.export_variables.my_variables"},
@@ -125,7 +135,6 @@ func TestFQNTree(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			have := namer.FQNTree(tc.policy())
 			require.Equal(t, tc.want, have)
@@ -177,12 +186,10 @@ func TestScopedModuleIDs(t *testing.T) {
 	)
 
 	for _, fn := range fns {
-		fn := fn
 		t.Run(fn.kind, func(t *testing.T) {
 			t.Parallel()
 
 			for _, tc := range testCases {
-				tc := tc
 				t.Run(fmt.Sprintf("scope=%s/genTree=false", tc.scope), func(t *testing.T) {
 					t.Parallel()
 
@@ -271,7 +278,6 @@ func TestFQNSpecialChars(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.policyName, func(t *testing.T) {
 			haveFQN := tc.fqnFunc(tc.policyName, "default", "a.b.c")
 			require.Equal(t, tc.wantFQN, haveFQN)

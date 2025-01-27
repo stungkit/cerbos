@@ -42,8 +42,6 @@
   },
   "type": "object",
   "required": [
-    "principal",
-    "resource",
     "actions"
   ],
   "additionalProperties": false,
@@ -70,12 +68,42 @@
       }
     },
     "principal": {
-      "type": "string",
-      "minLength": 1
+      "type": "string"
+    },
+    "principalGroups": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "principals": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
     },
     "resource": {
-      "type": "string",
-      "minLength": 1
+      "type": "string"
+    },
+    "resourceGroups": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
     }
   }
 }

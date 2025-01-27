@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package telemetry
@@ -142,7 +142,7 @@ func initStateFS(dir string) afero.Fs {
 			return afero.NewMemMapFs()
 		}
 
-		//nolint:gomnd
+		//nolint:mnd
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return afero.NewMemMapFs()
 		}
@@ -309,7 +309,7 @@ func (r *analyticsReporter) writeState() error {
 		return fmt.Errorf("failed to marshal proto: %w", err)
 	}
 
-	//nolint:gomnd
+	//nolint:mnd
 	if err := afero.WriteFile(r.fsys, stateFile, stateBytes, 0o600); err != nil {
 		return fmt.Errorf("failed to write state: %w", err)
 	}
