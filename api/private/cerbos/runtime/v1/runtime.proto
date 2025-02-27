@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 syntax = "proto3";
@@ -10,6 +10,7 @@ import "cerbos/policy/v1/policy.proto";
 import "cerbos/source/v1/source.proto";
 import "google/api/expr/v1alpha1/checked.proto";
 import "google/protobuf/empty.proto";
+import "google/protobuf/struct.proto";
 
 option go_package = "github.com/cerbos/cerbos/api/genpb/cerbos/runtime/v1;runtimev1";
 
@@ -20,8 +21,72 @@ message RunnablePolicySet {
     RunnablePrincipalPolicySet principal_policy = 3;
     RunnableDerivedRolesSet derived_roles = 4 [deprecated = true];
     RunnableVariablesSet variables = 5 [deprecated = true];
+    RunnableRolePolicySet role_policy = 7;
   }
   uint32 compiler_version = 6;
+}
+
+message RuleTable {
+  message RuleRow {
+    message AllowActions {
+      map<string, google.protobuf.Empty> actions = 1;
+    }
+
+    string origin_fqn = 1;
+    string resource = 2;
+    string role = 3;
+    oneof action_set {
+      string action = 4;
+      AllowActions allow_actions = 15;
+    }
+    Condition condition = 5;
+    Condition derived_role_condition = 6;
+    cerbos.effect.v1.Effect effect = 7;
+    string scope = 8;
+    cerbos.policy.v1.ScopePermissions scope_permissions = 9;
+    string version = 10;
+    string origin_derived_role = 11;
+    Output emit_output = 12;
+    string name = 13;
+  }
+
+  repeated RuleRow rules = 1;
+}
+
+message RuleTableMetadata {
+  string fqn = 1;
+  oneof name {
+    string resource = 2;
+    string role = 3;
+  }
+  string version = 4;
+  map<string, cerbos.policy.v1.SourceAttributes> source_attributes = 5;
+  map<string, string> annotations = 6;
+}
+
+message RunnableRolePolicySet {
+  message Metadata {
+    string fqn = 1;
+    map<string, cerbos.policy.v1.SourceAttributes> source_attributes = 2;
+    map<string, string> annotations = 3;
+  }
+
+  message Rule {
+    string resource = 1;
+    map<string, google.protobuf.Empty> allow_actions = 2;
+    Condition condition = 3;
+  }
+
+  message RuleList {
+    repeated Rule rules = 1;
+  }
+
+  Metadata meta = 1;
+  string role = 2;
+  string scope = 3;
+  cerbos.policy.v1.ScopePermissions scope_permissions = 5;
+  repeated string parent_roles = 6;
+  map<string, RuleList> resources = 7;
 }
 
 // RunnableResourcePolicySet is a container for all "compiled" resource policies
@@ -65,6 +130,8 @@ message RunnableResourcePolicySet {
     repeated Rule rules = 4;
     cerbos.policy.v1.Schemas schemas = 5;
     repeated Variable ordered_variables = 6;
+    cerbos.policy.v1.ScopePermissions scope_permissions = 7;
+    map<string, google.protobuf.Value> constants = 8;
   }
 
   Metadata meta = 1;
@@ -78,6 +145,7 @@ message RunnableDerivedRole {
   map<string, Expr> variables = 3 [deprecated = true];
   Condition condition = 4;
   repeated Variable ordered_variables = 5;
+  map<string, google.protobuf.Value> constants = 6;
 }
 
 message RunnableDerivedRolesSet {
@@ -134,6 +202,8 @@ message RunnablePrincipalPolicySet {
     map<string, Expr> variables = 2 [deprecated = true];
     map<string, ResourceRules> resource_rules = 3;
     repeated Variable ordered_variables = 4;
+    cerbos.policy.v1.ScopePermissions scope_permissions = 5;
+    map<string, google.protobuf.Value> constants = 6;
   }
 
   Metadata meta = 1;
@@ -202,6 +272,19 @@ message IndexBuildErrors {
     string context = 7;
   }
 
+  message MissingScope {
+    string missing_policy = 1;
+    repeated string descendants = 2;
+  }
+
+  message ScopePermissionsConflicts {
+    string scope = 1;
+  }
+
+  message ScopePermissionsOrdering {
+    string scope = 1;
+  }
+
   message LoadFailure {
     string file = 1;
     string error = 2 [deprecated = true];
@@ -218,8 +301,11 @@ message IndexBuildErrors {
   repeated DuplicateDef duplicate_defs = 2;
   repeated LoadFailure load_failures = 3;
   repeated MissingImport missing_imports = 4;
-  repeated string missing_scopes = 5;
+  repeated string missing_scopes = 5 [deprecated = true];
   repeated Disabled disabled_defs = 6;
+  repeated MissingScope missing_scope_details = 7;
+  repeated ScopePermissionsConflicts scope_permissions_conflicts = 8;
+  repeated ScopePermissionsOrdering scope_permissions_ordering = 9;
 }
 
 message Errors {

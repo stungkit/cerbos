@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package test
@@ -24,6 +24,7 @@ import (
 
 	policyv1 "github.com/cerbos/cerbos/api/genpb/cerbos/policy/v1"
 	schemav1 "github.com/cerbos/cerbos/api/genpb/cerbos/schema/v1"
+	"github.com/cerbos/cerbos/internal/namer"
 	"github.com/cerbos/cerbos/internal/observability/logging"
 	"github.com/cerbos/cerbos/internal/policy"
 	"github.com/cerbos/cerbos/internal/storage"
@@ -65,7 +66,7 @@ func AddSchemasToStore(t *testing.T, dir string, ms storage.MutableStore) {
 			return nil
 		}
 
-		if err := ms.AddOrUpdateSchema(context.TODO(), &schemav1.Schema{
+		if err := ms.AddOrUpdateSchema(t.Context(), &schemav1.Schema{
 			Id:         path,
 			Definition: ReadSchemaFromFS(t, fsys, path),
 		}); err != nil && !errors.Is(err, &storage.InvalidSchemaError{}) {
@@ -262,6 +263,11 @@ func FilterPolicies[P *policyv1.Policy | policy.Wrapper](t *testing.T, policies 
 
 	filtered := []P{}
 
+	var ss util.StringSet
+	if len(params.IDs) > 0 {
+		ss = util.ToStringSet(params.IDs)
+	}
+
 	c := util.NewRegexpCache()
 	for _, p := range policies {
 		var wrapped policy.Wrapper
@@ -296,6 +302,12 @@ func FilterPolicies[P *policyv1.Policy | policy.Wrapper](t *testing.T, policies 
 			}
 		}
 
+		if len(params.IDs) > 0 {
+			if !ss.Contains(namer.PolicyKey(wrapped.Policy)) {
+				continue
+			}
+		}
+
 		filtered = append(filtered, p)
 	}
 
@@ -308,5 +320,5 @@ func WriteGoldenFile(t *testing.T, path string, contents proto.Message) {
 	var b bytes.Buffer
 	require.NoError(t, json.Indent(&b, []byte(protojson.Format(contents)), "", "  "), "Failed to JSON-encode golden file contents")
 	b.WriteByte('\n')
-	require.NoError(t, os.WriteFile(path, b.Bytes(), 0o644), "Failed to write golden file") //nolint:gomnd,gosec
+	require.NoError(t, os.WriteFile(path, b.Bytes(), 0o644), "Failed to write golden file") //nolint:mnd,gosec
 }

@@ -27,3 +27,13 @@ resourcePolicy:
       derivedRoles:
         - direct_manager
         - employee_that_owns_the_record
+
+    - actions: ["block"]
+      effect: EFFECT_ALLOW
+      roles:
+        - boss
+
+    - actions: ["party_plan"]
+      effect: EFFECT_ALLOW
+      roles:
+        - organiser

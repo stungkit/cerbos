@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package index
@@ -59,12 +59,16 @@ func (s *statsCollector) add(p policy.Wrapper) {
 	switch p.Kind {
 	case policy.DerivedRolesKind:
 		ps = s.procDerivedRoles(p.GetDerivedRoles())
+	case policy.ExportConstantsKind:
+		ps = s.procExportConstants(p.GetExportConstants())
 	case policy.ExportVariablesKind:
 		ps = s.procExportVariables(p.GetExportVariables())
 	case policy.PrincipalKind:
 		ps = s.procPrincipalPolicy(p.GetPrincipalPolicy())
 	case policy.ResourceKind:
 		ps = s.procResourcePolicy(p.GetResourcePolicy())
+	case policy.RolePolicyKind:
+		ps = s.procRolePolicy(p.GetRolePolicy())
 	}
 
 	s.ruleCount[p.Kind] += ps.ruleCount
@@ -83,6 +87,16 @@ func (s *statsCollector) procDerivedRoles(dr *policyv1.DerivedRoles) (ps policyS
 			ps.conditionCount++
 		}
 	}
+
+	return ps
+}
+
+func (s *statsCollector) procExportConstants(ev *policyv1.ExportConstants) (ps policyStats) {
+	if ev == nil {
+		return ps
+	}
+
+	ps.ruleCount = len(ev.Definitions)
 
 	return ps
 }
@@ -136,6 +150,23 @@ func (s *statsCollector) procResourcePolicy(rp *policyv1.ResourcePolicy) (ps pol
 		if psch := sch.GetPrincipalSchema(); psch != nil {
 			s.schemaRefs[util.HashStr(psch.Ref)] = struct{}{}
 		}
+	}
+
+	return ps
+}
+
+func (s *statsCollector) procRolePolicy(rp *policyv1.RolePolicy) (ps policyStats) {
+	if rp == nil {
+		return ps
+	}
+
+	ps.ruleCount = len(rp.Rules)
+
+	// Role policies are modeled differently to resource/principal policies.
+	// We map a set of allowable actions for a given resource, so from a stats perspective,
+	// each allowable action is treated as an individual condition.
+	for _, r := range rp.Rules {
+		ps.conditionCount += len(r.AllowActions)
 	}
 
 	return ps

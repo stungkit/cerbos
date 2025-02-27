@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package policy
@@ -12,7 +12,7 @@ import (
 	"github.com/cerbos/cerbos-sdk-go/cerbos"
 	policyv1 "github.com/cerbos/cerbos/api/genpb/cerbos/policy/v1"
 	"github.com/cerbos/cerbos/cmd/cerbosctl/get/internal/flagset"
-	"github.com/cerbos/cerbos/cmd/cerbosctl/get/internal/printer"
+	"github.com/cerbos/cerbos/cmd/cerbosctl/internal/printer"
 	"github.com/cerbos/cerbos/internal/policy"
 )
 
@@ -33,12 +33,15 @@ func DoCmd(k *kong.Kong, ac *cerbos.GRPCAdminClient, kind policy.Kind, filters *
 }
 
 func List(k *kong.Kong, c *cerbos.GRPCAdminClient, filters *flagset.Filters, format *flagset.Format, sortFlags *flagset.Sort, kind policy.Kind) error {
-	var opts []cerbos.ListPoliciesOption
+	var opts []cerbos.FilterOption
 	if filters.IncludeDisabled {
 		opts = append(opts, cerbos.WithIncludeDisabled())
 	}
 	if filters.NameRegexp != "" {
 		opts = append(opts, cerbos.WithNameRegexp(filters.NameRegexp))
+	}
+	if len(filters.PolicyIDs) > 0 {
+		opts = append(opts, cerbos.WithPolicyID(filters.PolicyIDs...))
 	}
 	if filters.ScopeRegexp != "" {
 		opts = append(opts, cerbos.WithScopeRegexp(filters.ScopeRegexp))
@@ -69,7 +72,7 @@ func List(k *kong.Kong, c *cerbos.GRPCAdminClient, filters *flagset.Filters, for
 
 		sorted := sort(filtered, sortFlags.SortBy)
 		for _, p := range sorted {
-			row := make([]string, 2, 4) //nolint:gomnd
+			row := make([]string, 2, 4) //nolint:mnd
 			row[0] = p.Metadata.StoreIdentifier
 			row[1] = p.Name
 
@@ -77,7 +80,10 @@ func List(k *kong.Kong, c *cerbos.GRPCAdminClient, filters *flagset.Filters, for
 			case policy.PrincipalKind, policy.ResourceKind:
 				row = append(row, p.Version, p.Scope)
 
-			case policy.DerivedRolesKind, policy.ExportVariablesKind:
+			case policy.RolePolicyKind:
+				row = append(row, p.Scope)
+
+			case policy.DerivedRolesKind, policy.ExportConstantsKind, policy.ExportVariablesKind:
 				// no version or scope
 			}
 

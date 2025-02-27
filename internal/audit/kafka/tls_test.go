@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package kafka_test
@@ -12,15 +12,11 @@ import (
 )
 
 func TestNewTLSConfig(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 
-	// caPath is required
-	_, err := kafka.NewTLSConfig(ctx, 0, false, "", "path/to/cert", "path/to/key")
-	require.EqualError(t, err, "CA path cannot be empty")
-
 	// certPath or keyPath are required if either one are set
-	_, err = kafka.NewTLSConfig(ctx, 0, false, "path/to/ca", "path/to/cert", "")
+	_, err := kafka.NewTLSConfig(ctx, 0, false, "path/to/ca", "path/to/cert", "")
 	require.EqualError(t, err, "certPath and keyPath must both be empty or both be non-empty")
 
 	_, err = kafka.NewTLSConfig(ctx, 0, false, "path/to/ca", "", "path/to/key")

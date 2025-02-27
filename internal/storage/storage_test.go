@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package storage_test
@@ -26,7 +26,7 @@ func TestDriverInstantiation(t *testing.T) {
 
 	require.NoError(t, config.LoadMap(conf))
 
-	ctx, cancelFunc := context.WithCancel(context.Background())
+	ctx, cancelFunc := context.WithCancel(t.Context())
 	defer cancelFunc()
 
 	store, err := storage.New(ctx)

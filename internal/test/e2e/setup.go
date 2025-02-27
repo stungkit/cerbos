@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 //go:build e2e
@@ -20,6 +20,13 @@ func Setup(ctx Ctx) error {
 	// `helmfile apply` requires `helm diff`. `helmfile init` checks for required plugins
 	if err := Cmd(ctx, "helmfile", "apply"); err != nil {
 		ctx.Logf("Deployment failed: %v", err)
+		if err := CmdWithOutput(ctx, "kubectl", "describe", "pods", fmt.Sprintf("--namespace=%s", ctx.Namespace())); err != nil {
+			ctx.Logf("Failed to describe pods: %v", err)
+		}
+
+		if err := CmdWithOutput(ctx, "stern", ".*", fmt.Sprintf("--namespace=%s", ctx.Namespace()), "--no-follow"); err != nil {
+			ctx.Logf("Failed to grab logs: %v", err)
+		}
 		return err
 	}
 
@@ -74,12 +81,12 @@ func dumpOutput(ctx Ctx, s cmd.Status) {
 	ctx.Logf("Command=[%s] Code=%d Error=%v", s.Cmd, s.Exit, s.Error)
 	ctx.Logf("-----Stdout-----")
 	for _, l := range s.Stdout {
-		ctx.Logf(l)
+		ctx.Logf("%s", l)
 	}
 
 	ctx.Logf("-----Stderr-----")
 	for _, l := range s.Stderr {
-		ctx.Logf(l)
+		ctx.Logf("%s", l)
 	}
 }
 

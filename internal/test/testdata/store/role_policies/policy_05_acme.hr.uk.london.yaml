@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=../../../../../schema/jsonschema/cerbos/policy/v1/Policy.schema.json
+---
+apiVersion: api.cerbos.dev/v1
+rolePolicy:
+  role: acme_london_employee
+  scope: acme.hr.uk.london
+  scopePermissions: SCOPE_PERMISSIONS_REQUIRE_PARENTAL_CONSENT_FOR_ALLOWS
+  parentRoles:
+    - "employee"
+  rules:
+    - resource: "*"
+      allowActions: ["create"]
+      condition:
+        match:
+          expr: P.attr.city == "london"
+
+    - resource: "leave_request"
+      allowActions: ["anonymise"]

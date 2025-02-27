@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package kafka_test
@@ -25,7 +25,7 @@ func TestWriteAccessLogEntry(t *testing.T) {
 			Encoding: kafka.EncodingJSON,
 		})
 
-		err := publisher.WriteAccessLogEntry(context.Background(), func() (*auditv1.AccessLogEntry, error) {
+		err := publisher.WriteAccessLogEntry(t.Context(), func() (*auditv1.AccessLogEntry, error) {
 			return &auditv1.AccessLogEntry{
 				CallId: string(id),
 			}, nil
@@ -42,7 +42,7 @@ func TestWriteAccessLogEntry(t *testing.T) {
 			Encoding: kafka.EncodingProtobuf,
 		})
 
-		err := publisher.WriteAccessLogEntry(context.Background(), func() (*auditv1.AccessLogEntry, error) {
+		err := publisher.WriteAccessLogEntry(t.Context(), func() (*auditv1.AccessLogEntry, error) {
 			return &auditv1.AccessLogEntry{
 				CallId: string(id),
 			}, nil
@@ -60,7 +60,7 @@ func TestWriteAccessLogEntry(t *testing.T) {
 			ProduceSync: true,
 		})
 
-		err := publisher.WriteAccessLogEntry(context.Background(), func() (*auditv1.AccessLogEntry, error) {
+		err := publisher.WriteAccessLogEntry(t.Context(), func() (*auditv1.AccessLogEntry, error) {
 			return &auditv1.AccessLogEntry{
 				CallId: string(id),
 			}, nil
@@ -79,7 +79,7 @@ func TestWriteDecisionLogEntry(t *testing.T) {
 			Encoding: kafka.EncodingJSON,
 		})
 
-		err := publisher.WriteDecisionLogEntry(context.Background(), func() (*auditv1.DecisionLogEntry, error) {
+		err := publisher.WriteDecisionLogEntry(t.Context(), func() (*auditv1.DecisionLogEntry, error) {
 			return &auditv1.DecisionLogEntry{
 				CallId: string(id),
 			}, nil
@@ -96,7 +96,7 @@ func TestWriteDecisionLogEntry(t *testing.T) {
 			Encoding: kafka.EncodingProtobuf,
 		})
 
-		err := publisher.WriteDecisionLogEntry(context.Background(), func() (*auditv1.DecisionLogEntry, error) {
+		err := publisher.WriteDecisionLogEntry(t.Context(), func() (*auditv1.DecisionLogEntry, error) {
 			return &auditv1.DecisionLogEntry{
 				CallId: string(id),
 			}, nil
@@ -158,7 +158,7 @@ func newPublisher(t *testing.T, cfg kafka.Conf) (*kafka.Publisher, *mockClient) 
 	config.Encoding = cfg.Encoding
 	config.ProduceSync = cfg.ProduceSync
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 
 	publisher, err := kafka.NewPublisher(ctx, config, nil)
@@ -193,7 +193,7 @@ func (m *mockClient) Flush(_ context.Context) error {
 	return nil
 }
 
-func (m *mockClient) Produce(_ context.Context, record *kgo.Record, _ func(*kgo.Record, error)) {
+func (m *mockClient) TryProduce(_ context.Context, record *kgo.Record, _ func(*kgo.Record, error)) {
 	m.Records = append(m.Records, record)
 }
 

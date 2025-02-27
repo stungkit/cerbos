@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 //go:build tests
@@ -11,6 +11,7 @@ import (
 
 	effectv1 "github.com/cerbos/cerbos/api/genpb/cerbos/effect/v1"
 	policyv1 "github.com/cerbos/cerbos/api/genpb/cerbos/policy/v1"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type NameMod func(string) string
@@ -76,6 +77,12 @@ type ResourcePolicyBuilder struct {
 func NewResourcePolicyBuilder(resource, version string) *ResourcePolicyBuilder {
 	return &ResourcePolicyBuilder{
 		rp: &policyv1.ResourcePolicy{
+			Constants: &policyv1.Constants{
+				Local: make(map[string]*structpb.Value),
+			},
+			Variables: &policyv1.Variables{
+				Local: make(map[string]string),
+			},
 			Resource: resource,
 			Version:  version,
 		},
@@ -84,6 +91,16 @@ func NewResourcePolicyBuilder(resource, version string) *ResourcePolicyBuilder {
 
 func (rpb *ResourcePolicyBuilder) WithDerivedRolesImports(imp ...string) *ResourcePolicyBuilder {
 	rpb.rp.ImportDerivedRoles = append(rpb.rp.ImportDerivedRoles, imp...)
+	return rpb
+}
+
+func (rpb *ResourcePolicyBuilder) WithLocalConstant(name string, value *structpb.Value) *ResourcePolicyBuilder {
+	rpb.rp.Constants.Local[name] = value
+	return rpb
+}
+
+func (rpb *ResourcePolicyBuilder) WithLocalVariable(name, value string) *ResourcePolicyBuilder {
+	rpb.rp.Variables.Local[name] = value
 	return rpb
 }
 
@@ -126,6 +143,18 @@ func GenDisabledResourcePolicy(mod NameMod) *policyv1.Policy {
 	return p
 }
 
+func GenDisabledRolePolicy(mod NameMod) *policyv1.Policy {
+	p := GenRolePolicy(mod)
+	p.Disabled = true
+	return p
+}
+
+func GenScopedResourcePolicy(scope string, mod NameMod) *policyv1.Policy {
+	p := GenResourcePolicy(mod)
+	p.GetResourcePolicy().Scope = scope
+	return p
+}
+
 // GenResourcePolicy generates a sample resource policy with some names modified by the NameMod.
 func GenResourcePolicy(mod NameMod) *policyv1.Policy {
 	return &policyv1.Policy{
@@ -135,6 +164,9 @@ func GenResourcePolicy(mod NameMod) *policyv1.Policy {
 				Resource:           mod("leave_request"),
 				Version:            "default",
 				ImportDerivedRoles: []string{mod("my_derived_roles")},
+				Constants: &policyv1.Constants{
+					Import: []string{mod("my_constants")},
+				},
 				Variables: &policyv1.Variables{
 					Import: []string{mod("my_variables")},
 				},
@@ -167,6 +199,29 @@ func GenResourcePolicy(mod NameMod) *policyv1.Policy {
 									Op: &policyv1.Match_Expr{Expr: `request.resource.attr.status == "PENDING_APPROVAL"`},
 								},
 							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// GenRolePolicy generates a sample role policy with some names modified by the NameMod.
+func GenRolePolicy(mod NameMod) *policyv1.Policy {
+	return &policyv1.Policy{
+		ApiVersion: "api.cerbos.dev/v1",
+		PolicyType: &policyv1.Policy_RolePolicy{
+			RolePolicy: &policyv1.RolePolicy{
+				PolicyType: &policyv1.RolePolicy_Role{
+					Role: mod("acme_admin"),
+				},
+				ScopePermissions: policyv1.ScopePermissions_SCOPE_PERMISSIONS_REQUIRE_PARENTAL_CONSENT_FOR_ALLOWS,
+				Rules: []*policyv1.RoleRule{
+					{
+						Resource: mod("leave_request"),
+						AllowActions: []string{
+							mod("create"),
 						},
 					},
 				},
@@ -236,8 +291,24 @@ func NewPrincipalPolicyBuilder(principal, version string) *PrincipalPolicyBuilde
 		pp: &policyv1.PrincipalPolicy{
 			Principal: principal,
 			Version:   version,
+			Constants: &policyv1.Constants{
+				Local: make(map[string]*structpb.Value),
+			},
+			Variables: &policyv1.Variables{
+				Local: make(map[string]string),
+			},
 		},
 	}
+}
+
+func (ppb *PrincipalPolicyBuilder) WithLocalConstant(name string, value *structpb.Value) *PrincipalPolicyBuilder {
+	ppb.pp.Constants.Local[name] = value
+	return ppb
+}
+
+func (ppb *PrincipalPolicyBuilder) WithLocalVariable(name, value string) *PrincipalPolicyBuilder {
+	ppb.pp.Variables.Local[name] = value
+	return ppb
 }
 
 func (ppb *PrincipalPolicyBuilder) WithRules(rules ...*policyv1.PrincipalRule) *PrincipalPolicyBuilder {
@@ -250,6 +321,53 @@ func (ppb *PrincipalPolicyBuilder) Build() *policyv1.Policy {
 		ApiVersion: "api.cerbos.dev/v1",
 		PolicyType: &policyv1.Policy_PrincipalPolicy{
 			PrincipalPolicy: ppb.pp,
+		},
+	}
+}
+
+// RoleRuleBuilder is a builder for resource rules.
+type RoleRuleBuilder struct {
+	rule *policyv1.RoleRule
+}
+
+func NewRoleRule(resource string, actions ...string) *RoleRuleBuilder {
+	return &RoleRuleBuilder{
+		rule: &policyv1.RoleRule{
+			Resource:     resource,
+			AllowActions: actions,
+		},
+	}
+}
+
+func (rrb *RoleRuleBuilder) Build() *policyv1.RoleRule {
+	return rrb.rule
+}
+
+// RolePolicyBuilder is a builder for role policies.
+type RolePolicyBuilder struct {
+	rp *policyv1.RolePolicy
+}
+
+func NewRolePolicyBuilder(role string) *RolePolicyBuilder {
+	return &RolePolicyBuilder{
+		rp: &policyv1.RolePolicy{
+			PolicyType: &policyv1.RolePolicy_Role{
+				Role: role,
+			},
+		},
+	}
+}
+
+func (rpb *RolePolicyBuilder) WithRules(rules ...*policyv1.RoleRule) *RolePolicyBuilder {
+	rpb.rp.Rules = append(rpb.rp.Rules, rules...)
+	return rpb
+}
+
+func (rpb *RolePolicyBuilder) Build() *policyv1.Policy {
+	return &policyv1.Policy{
+		ApiVersion: "api.cerbos.dev/v1",
+		PolicyType: &policyv1.Policy_RolePolicy{
+			RolePolicy: rpb.rp,
 		},
 	}
 }
@@ -267,6 +385,9 @@ func GenPrincipalPolicy(mod NameMod) *policyv1.Policy {
 			PrincipalPolicy: &policyv1.PrincipalPolicy{
 				Principal: mod("donald_duck"),
 				Version:   "default",
+				Constants: &policyv1.Constants{
+					Import: []string{mod("my_constants")},
+				},
 				Variables: &policyv1.Variables{
 					Import: []string{mod("my_variables")},
 				},
@@ -346,6 +467,16 @@ func GenDerivedRoles(mod NameMod) *policyv1.Policy {
 		PolicyType: &policyv1.Policy_DerivedRoles{
 			DerivedRoles: &policyv1.DerivedRoles{
 				Name: mod("my_derived_roles"),
+				Constants: &policyv1.Constants{
+					Local: map[string]*structpb.Value{
+						"answer": structpb.NewNumberValue(42), //nolint:mnd
+					},
+				},
+				Variables: &policyv1.Variables{
+					Local: map[string]string{
+						"geography": "request.resource.attr.geography",
+					},
+				},
 				Definitions: []*policyv1.RoleDef{
 					{
 						Name:        "admin",
@@ -374,6 +505,26 @@ func GenDerivedRoles(mod NameMod) *policyv1.Policy {
 							"request.resource.attr.geography == request.principal.attr.managed_geographies",
 						),
 					},
+				},
+			},
+		},
+	}
+}
+
+func GenDisabledExportConstants(mod NameMod) *policyv1.Policy {
+	p := GenExportConstants(mod)
+	p.Disabled = true
+	return p
+}
+
+func GenExportConstants(mod NameMod) *policyv1.Policy {
+	return &policyv1.Policy{
+		ApiVersion: "api.cerbos.dev/v1",
+		PolicyType: &policyv1.Policy_ExportConstants{
+			ExportConstants: &policyv1.ExportConstants{
+				Name: mod("my_constants"),
+				Definitions: map[string]*structpb.Value{
+					"answer": structpb.NewNumberValue(42), //nolint:mnd
 				},
 			},
 		},

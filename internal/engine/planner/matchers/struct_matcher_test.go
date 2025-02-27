@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package matchers
@@ -26,6 +26,10 @@ func TestStructMatcher(t *testing.T) {
 		},
 		{
 			expr: "P.attr.anyMap[R.attr.Id] == R.attr.value",
+		},
+		{
+			expr: `{"a1": {"role": "OWNER"}}[R.id].role == "OWNER"`,
+			res:  true,
 		},
 		{
 			expr: "P.attr.anyMap[R.attr.Id][R.attr.value]",

@@ -33,6 +33,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
       - name: Check out code
         uses: actions/checkout@v4
 
@@ -43,6 +54,9 @@ jobs:
           write_deps_cache: true
           write_build_cache: true
 
+      - name: Install just
+        uses: extractions/setup-just@v2
+
       - name: Warm cache
         if: ${{ steps.setup.outputs.cache_hit != 'true' }}
-        run: make warm-cache
+        run: just warm-cache

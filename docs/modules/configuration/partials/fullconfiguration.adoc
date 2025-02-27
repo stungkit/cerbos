@@ -11,12 +11,6 @@ audit:
   enabled: false # Enabled defines whether audit logging is enabled.
   excludeMetadataKeys: ['authorization'] # ExcludeMetadataKeys defines which gRPC request metadata keys should be excluded from the audit logs. Takes precedence over includeMetadataKeys.
   includeMetadataKeys: ['content-type'] # IncludeMetadataKeys defines which gRPC request metadata keys should be included in the audit logs.
-  cerboshub:
-    ingest: 
-      flushTimeout: 5s 
-      maxBatchSize: 32 
-      minFlushInterval: 10s 
-      numGoRoutines: 8
   file:
     additionalPaths: [stdout] # AdditionalPaths to mirror the log output. Has performance implications. Use with caution.
     logRotation: # LogRotation settings (optional).
@@ -24,6 +18,24 @@ audit:
       maxFileCount: 10 # MaxFileCount sets the maximum number of files to retain.
       maxFileSizeMB: 100 # MaxFileSizeMB sets the maximum size of individual log files in megabytes.
     path: /path/to/file.log # Required. Path to the log file to use as output. The special values stdout and stderr can be used to write to stdout or stderr respectively.
+  hub:
+    advanced: 
+      bufferSize: 256 
+      flushInterval: 1s 
+      gcInterval: 60s 
+      maxBatchSize: 32 
+    mask: # Mask defines a list of attributes to exclude from the audit logs, specified as lists of JSONPaths
+      checkResources: 
+        - inputs[*].principal.attr.foo
+        - inputs[*].auxData
+        - outputs 
+      metadata: ['authorization'] 
+      peer: 
+        - address
+        - forwarded_for 
+      planResources: ['input.principal.attr.nestedMap.foo'] 
+    retentionPeriod: 168h # How long to keep records for
+    storagePath: /path/to/dir # Path to store the data
   kafka:
     ack: all # Ack mode for producing messages. Valid values are "none", "leader" or "all" (default). Idempotency is disabled when mode is not "all".
     authentication: # Authentication
@@ -36,7 +48,7 @@ audit:
     brokers: ['localhost:9092'] # Required. Brokers list to seed the Kafka client.
     clientID: cerbos # ClientID reported in Kafka connections.
     closeTimeout: 30s # CloseTimeout sets how long when closing the client to wait for any remaining messages to be flushed.
-    compression: ['snappy'] # Compression sets the compression algorithm to use in order of priority. Valid values are "none", "gzip", "snappy","lz4", "zstd". Default is ["snappy", "none"].
+    compression: ['snappy', 'none'] # Compression sets the compression algorithm to use in order of priority. Valid values are "none", "gzip", "snappy","lz4", "zstd". Default is ["snappy", "none"].
     encoding: json # Encoding format. Valid values are "json" (default) or "protobuf".
     maxBufferedRecords: 1000 # MaxBufferedRecords sets the maximum number of records the client should buffer in memory in async mode.
     produceSync: false # ProduceSync forces the client to produce messages to Kafka synchronously. This can have a significant impact on performance.
@@ -74,6 +86,12 @@ engine:
   defaultPolicyVersion: "default" # DefaultPolicyVersion defines what version to assume if the request does not specify one.
   globals: {"environment": "staging"} # Globals are environment-specific variables to be made available to policy conditions.
   lenientScopeSearch: false # LenientScopeSearch configures the engine to ignore missing scopes and search upwards through the scope tree until it finds a usable policy.
+hub:
+  credentials: # Credentials holds Cerbos Hub client credentials.
+    clientID: 92B0K05B6HOF # ClientID of the Cerbos Hub credential. Defaults to the value of the CERBOS_HUB_CLIENT_ID environment variable.
+    clientSecret: ${CERBOS_HUB_CLIENT_SECRET} # ClientSecret of the Cerbos Hub credential. Defaults to the value of the CERBOS_HUB_CLIENT_SECRET environment variable.
+    pdpID: crb-004 # PDPID is the unique identifier for this Cerbos instance. Defaults to the value of the CERBOS_HUB_PDP_ID environment variable.
+    workspaceSecret: ${CERBOS_HUB_WORKSPACE_SECRET} # WorkspaceSecret used to decrypt the bundles. Defaults to the value of the CERBOS_HUB_WORKSPACE_SECRET environment variable.
 schema:
   cacheSize: 1024 # CacheSize defines the number of schemas to cache in memory.
   enforcement: reject # Enforcement defines level of the validations. Possible values are none, warn, reject.
@@ -123,32 +141,6 @@ storage:
     requestTimeout: 10s # RequestTimeout specifies the timeout for an HTTP request.
     updatePollInterval: 15s # UpdatePollInterval specifies the interval to poll the cloud storage. Set to 0 to disable.
     workDir: ${HOME}/tmp/cerbos/work # WorkDir is the local path to check out policies to.
-  bundle:
-    # This section is required only if storage.driver is bundle.
-    cacheSize: 1024 # CacheSize defines the number of policies to cache in memory.
-    credentials: # Credentials holds bundle source credentials.
-      clientID: 92B0K05B6HOF # ClientID of the Cerbos Hub credential. Defaults to the value of the CERBOS_HUB_CLIENT_ID environment variable.
-      clientSecret: ${CERBOS_HUB_CLIENT_SECRET} # ClientSecret of the Cerbos Hub credential. Defaults to the value of the CERBOS_HUB_CLIENT_SECRET environment variable.
-      pdpID: crb-004 # PDPID is the unique identifier for this Cerbos instance. Defaults to the value of the CERBOS_HUB_PDP_ID environment variable.
-      workspaceSecret: ${CERBOS_HUB_WORKSPACE_SECRET} # WorkspaceSecret used to decrypt the bundles. Defaults to the value of the CERBOS_HUB_WORKSPACE_SECRET environment variable.
-    local: # Local holds configuration for local bundle source.
-      bundlePath: /path/to/bundle.crbp # Required. BundlePath is the full path to the local bundle file.
-      tempDir: ${TEMP} # TempDir is the directory to use for temporary files.
-    remote: # Remote holds configuration for remote bundle source. Takes precedence over local if both are defined.
-      bundleLabel: latest # Required. BundleLabel to fetch from the server.
-      cacheDir: ${XDG_CACHE_DIR} # CacheDir is the directory to use for caching downloaded bundles.
-      connection: # Connection defines settings for the remote server connection.
-        apiEndpoint: https://api.cerbos.cloud # Required. APIEndpoint is the address of the API server.
-        bootstrapEndpoint: https://cdn.cerbos.cloud # Required. BootstrapEndpoint is the addresses of the server serving the bootstrap configuration.
-        heartbeatInterval: 2m # HeartbeatInterval is the interval for sending regular heartbeats.
-        maxRetryWait: 120s # MaxRetryWait is the maximum amount of time to wait between retries.
-        minRetryWait: 1s # MinRetryWait is the minimum amount of time to wait between retries.
-        numRetries: 5 # NumRetries is the number of times to retry before giving up.
-        tls: # TLS defines settings for TLS connections.
-          authority: domain.tld # Authority overrides the Cerbos PDP server authority if it is different from what is provided in the address.
-          caCert: /path/to/CA_certificate # CACert is the path to the CA certificate chain to use for certificate verification.
-      disableAutoUpdate: <DEFAULT_VALUE_NOT_SET> # DisableAutoUpdate sets whether new bundles should be automatically downloaded and applied.
-      tempDir: ${TEMP} # TempDir is the directory to use for temporary files.
   disk:
     # This section is required only if storage.driver is disk.
     directory: pkg/test/testdata/store # Required. Directory is the path on disk where policies are stored.
@@ -169,6 +161,17 @@ storage:
     subDir: policies # SubDir is the path under the checked-out Git repo where the policies are stored.
     url: file://${HOME}/tmp/cerbos/policies # Required. URL is the URL to the Git repo.
     updatePollInterval: 60s # UpdatePollInterval specifies the interval to poll the Git repository for changes. Set to 0 to disable.
+  hub:
+    # This section is required only if storage.driver is hub.
+    cacheSize: 1024 # CacheSize defines the number of policies to cache in memory.
+    local: # Local holds configuration for local bundle source.
+      bundlePath: /path/to/bundle.crbp # Required. BundlePath is the full path to the local bundle file.
+      tempDir: ${TEMP} # TempDir is the directory to use for temporary files.
+    remote: # Remote holds configuration for remote bundle source. Takes precedence over local if both are defined.
+      bundleLabel: latest # Required. BundleLabel to fetch from the server.
+      cacheDir: ${XDG_CACHE_DIR} # CacheDir is the directory to use for caching downloaded bundles.
+      disableAutoUpdate: false # DisableAutoUpdate sets whether new bundles should be automatically downloaded and applied.
+      tempDir: ${TEMP} # TempDir is the directory to use for temporary files.
   mysql:
     # This section is required only if storage.driver is mysql.
     connPool: 
@@ -211,19 +214,6 @@ storage:
   sqlite3:
     # This section is required only if storage.driver is sqlite3.
     dsn: ":memory:?_fk=true" # Required. Data source name
-  sqlserver:
-    # This section is required only if storage.driver is sqlserver.
-    connPool: 
-      maxLifeTime: 60m
-      maxIdleTime: 45s
-      maxOpen: 4
-      maxIdle: 1 
-    connRetry: 
-      maxAttempts: 3
-      initialInterval: 0.5s
-      maxInterval: 60s 
-    skipSchemaCheck: false # SkipSchemaCheck skips checking for required database tables on startup.
-    url: "sqlserver://username:password@host/instance?param1=value&param2=value" # Required. URL is the SQL Server connection URL. See https://github.com/microsoft/go-mssqldb#connection-parameters-and-dsn.
 telemetry:
   disabled: false # Disabled sets whether telemetry collection is disabled or not.
   reportInterval: 1h # ReportInterval is the interval between telemetry pings.

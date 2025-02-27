@@ -1,10 +1,9 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package git
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -21,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	effectv1 "github.com/cerbos/cerbos/api/genpb/cerbos/effect/v1"
 	policyv1 "github.com/cerbos/cerbos/api/genpb/cerbos/policy/v1"
@@ -56,7 +56,7 @@ func TestNewStore(t *testing.T) {
 		checkoutDir := filepath.Join(t.TempDir(), "clone")
 		conf := mkConf(t, sourceGitDir, checkoutDir)
 
-		store, err := NewStore(context.Background(), conf)
+		store, err := NewStore(t.Context(), conf)
 		require.NoError(t, err)
 
 		requireIndexContains(t, store, wantFiles)
@@ -67,7 +67,7 @@ func TestNewStore(t *testing.T) {
 		checkoutDir := t.TempDir()
 		conf := mkConf(t, sourceGitDir, checkoutDir)
 
-		store, err := NewStore(context.Background(), conf)
+		store, err := NewStore(t.Context(), conf)
 		require.NoError(t, err)
 
 		requireIndexContains(t, store, wantFiles)
@@ -85,7 +85,7 @@ func TestNewStore(t *testing.T) {
 
 		conf := mkConf(t, sourceGitDir, checkoutDir)
 
-		store, err := NewStore(context.Background(), conf)
+		store, err := NewStore(t.Context(), conf)
 		require.NoError(t, err)
 
 		requireIndexContains(t, store, wantFiles)
@@ -102,7 +102,7 @@ func TestNewStore(t *testing.T) {
 
 		conf := mkConf(t, sourceGitDir, checkoutDir)
 
-		store, err := NewStore(context.Background(), conf)
+		store, err := NewStore(t.Context(), conf)
 		require.Nil(t, store)
 		require.ErrorIs(t, err, git.ErrRepositoryNotExists)
 	})
@@ -125,7 +125,7 @@ func setupUpdateStoreTest(t *testing.T, numPolicySets int) testParams {
 	_ = createGitRepo(t, sourceGitDir, numPolicySets)
 
 	conf := mkConf(t, sourceGitDir, checkoutDir)
-	store, err := NewStore(context.Background(), conf)
+	store, err := NewStore(t.Context(), conf)
 	require.NoError(t, err)
 
 	mockIdx := &mocks.Index{}
@@ -153,7 +153,7 @@ func TestUpdateStore(t *testing.T) {
 		param := setupUpdateStoreTest(t, numPolicySets)
 		checkEvents := storage.TestSubscription(param.store)
 
-		require.NoError(t, param.store.updateIndex(context.Background()))
+		require.NoError(t, param.store.updateIndex(t.Context()))
 		param.mockIdx.AssertExpectations(t)
 		checkEvents(t, timeout)
 	})
@@ -181,7 +181,7 @@ func TestUpdateStore(t *testing.T) {
 			return writePolicySet(filepath.Join(param.sourceGitDir, policyDir), pset)
 		}))
 
-		require.NoError(t, param.store.updateIndex(context.Background()))
+		require.NoError(t, param.store.updateIndex(t.Context()))
 		param.mockIdx.AssertExpectations(t)
 		param.mockIdx.AssertNumberOfCalls(t, "AddOrUpdate", len(pset))
 
@@ -228,7 +228,7 @@ func TestUpdateStore(t *testing.T) {
 			return writePolicySet(filepath.Join(param.sourceGitDir, policyDir), pset)
 		}))
 
-		require.NoError(t, param.store.updateIndex(context.Background()))
+		require.NoError(t, param.store.updateIndex(t.Context()))
 		param.mockIdx.AssertExpectations(t)
 		param.mockIdx.AssertNumberOfCalls(t, "AddOrUpdate", len(pset))
 
@@ -263,7 +263,7 @@ func TestUpdateStore(t *testing.T) {
 			return err
 		}))
 
-		require.NoError(t, param.store.updateIndex(context.Background()))
+		require.NoError(t, param.store.updateIndex(t.Context()))
 
 		param.mockIdx.AssertExpectations(t)
 		param.mockIdx.AssertNumberOfCalls(t, "AddOrUpdate", len(pset))
@@ -296,7 +296,7 @@ func TestUpdateStore(t *testing.T) {
 			return nil
 		}))
 
-		require.NoError(t, param.store.updateIndex(context.Background()))
+		require.NoError(t, param.store.updateIndex(t.Context()))
 		param.mockIdx.AssertExpectations(t)
 		param.mockIdx.AssertNotCalled(t, "AddOrUpdate", mock.MatchedBy(anyIndexEntry))
 		checkEvents(t, timeout)
@@ -332,7 +332,7 @@ func TestUpdateStore(t *testing.T) {
 			return nil
 		}))
 
-		require.NoError(t, param.store.updateIndex(context.Background()))
+		require.NoError(t, param.store.updateIndex(t.Context()))
 		param.mockIdx.AssertExpectations(t)
 		param.mockIdx.AssertNumberOfCalls(t, "Delete", len(pset))
 
@@ -385,7 +385,7 @@ func TestUpdateStore(t *testing.T) {
 			return err
 		}))
 
-		require.NoError(t, param.store.updateIndex(context.Background()))
+		require.NoError(t, param.store.updateIndex(t.Context()))
 		param.mockIdx.AssertExpectations(t)
 		param.mockIdx.AssertNumberOfCalls(t, "AddOrUpdate", len(pset))
 		param.mockIdx.AssertNumberOfCalls(t, "Delete", len(pset))
@@ -431,7 +431,7 @@ func TestUpdateStore(t *testing.T) {
 			return err
 		}))
 
-		require.NoError(t, param.store.updateIndex(context.Background()))
+		require.NoError(t, param.store.updateIndex(t.Context()))
 		param.mockIdx.AssertExpectations(t)
 		param.mockIdx.AssertNumberOfCalls(t, "Delete", len(pset))
 
@@ -458,7 +458,7 @@ func TestUpdateStore(t *testing.T) {
 			return err
 		}))
 
-		require.NoError(t, param.store.updateIndex(context.Background()))
+		require.NoError(t, param.store.updateIndex(t.Context()))
 		param.mockIdx.AssertExpectations(t)
 		param.mockIdx.AssertNotCalled(t, "Delete", mock.MatchedBy(anyIndexEntry))
 		checkEvents(t, timeout)
@@ -479,7 +479,7 @@ func TestUpdateStore(t *testing.T) {
 			return err
 		}))
 
-		require.NoError(t, param.store.updateIndex(context.Background()))
+		require.NoError(t, param.store.updateIndex(t.Context()))
 		param.mockIdx.AssertExpectations(t)
 		param.mockIdx.AssertNotCalled(t, "Delete", mock.MatchedBy(anyIndexEntry))
 		checkEvents(t, timeout)
@@ -505,7 +505,7 @@ func TestUpdateStore(t *testing.T) {
 			return err
 		}))
 
-		require.NoError(t, param.store.updateIndex(context.Background()))
+		require.NoError(t, param.store.updateIndex(t.Context()))
 		param.mockIdx.AssertExpectations(t)
 
 		checkEvents(t, timeout,
@@ -539,7 +539,7 @@ func TestUpdateStore(t *testing.T) {
 			return err
 		}))
 
-		require.NoError(t, param.store.updateIndex(context.Background()))
+		require.NoError(t, param.store.updateIndex(t.Context()))
 		param.mockIdx.AssertExpectations(t)
 
 		checkEvents(t, timeout,
@@ -565,7 +565,7 @@ func TestUpdateStore(t *testing.T) {
 			return err
 		}))
 
-		require.NoError(t, param.store.updateIndex(context.Background()))
+		require.NoError(t, param.store.updateIndex(t.Context()))
 		param.mockIdx.AssertExpectations(t)
 
 		checkEvents(t, timeout, storage.NewSchemaEvent(storage.EventDeleteSchema, "invalid.json"))
@@ -669,7 +669,6 @@ func TestNormalizePath(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(fmt.Sprintf("subDir=%s,path=%s", tc.subDir, tc.path), func(t *testing.T) {
 			store := &Store{subDir: tc.subDir}
 
@@ -772,7 +771,7 @@ func mkEmptyStoreAndRepo(t *testing.T, sourceGitDir, checkoutDir string) *Store 
 	t.Helper()
 
 	_ = createGitRepo(t, sourceGitDir, 0)
-	store, err := NewStore(context.Background(), mkConf(t, sourceGitDir, checkoutDir))
+	store, err := NewStore(t.Context(), mkConf(t, sourceGitDir, checkoutDir))
 	require.NoError(t, err)
 
 	return store
@@ -878,6 +877,7 @@ func genPolicySet(i int) policySet {
 		test.GenResourcePolicy(test.PrefixAndSuffix(namePrefix, suffix)),
 		test.GenPrincipalPolicy(test.PrefixAndSuffix(namePrefix, suffix)),
 		test.GenDerivedRoles(test.PrefixAndSuffix(namePrefix, suffix)),
+		test.GenExportConstants(test.PrefixAndSuffix(namePrefix, suffix)),
 		test.GenExportVariables(test.PrefixAndSuffix(namePrefix, suffix)),
 	}
 
@@ -918,6 +918,8 @@ func mkFileName(p *policyv1.Policy) string {
 		return fmt.Sprintf("%s.%s.yaml", pt.PrincipalPolicy.Principal, pt.PrincipalPolicy.Version)
 	case *policyv1.Policy_DerivedRoles:
 		return fmt.Sprintf("%s.yaml", pt.DerivedRoles.Name)
+	case *policyv1.Policy_ExportConstants:
+		return fmt.Sprintf("%s.yaml", pt.ExportConstants.Name)
 	case *policyv1.Policy_ExportVariables:
 		return fmt.Sprintf("%s.yaml", pt.ExportVariables.Name)
 	default:
@@ -1023,6 +1025,9 @@ func modifyPolicy(p *policyv1.Policy) *policyv1.Policy {
 			ParentRoles: []string{"some_role", "another_role"},
 		})
 
+	case *policyv1.Policy_ExportConstants:
+		pt.ExportConstants.Definitions["some_constant"] = structpb.NewStringValue("some_value")
+
 	case *policyv1.Policy_ExportVariables:
 		pt.ExportVariables.Definitions["some_variable"] = "some_expression"
 	}
@@ -1038,6 +1043,8 @@ func modifyPolicyVersion(p *policyv1.Policy) *policyv1.Policy {
 		pt.PrincipalPolicy.Version = "changed"
 	case *policyv1.Policy_DerivedRoles:
 		pt.DerivedRoles.Name = "changed"
+	case *policyv1.Policy_ExportConstants:
+		pt.ExportConstants.Name = "changed"
 	case *policyv1.Policy_ExportVariables:
 		pt.ExportVariables.Name = "changed"
 	}

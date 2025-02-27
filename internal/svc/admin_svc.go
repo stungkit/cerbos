@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package svc
@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
@@ -42,6 +44,7 @@ var (
 
 // CerbosAdminService implements the Cerbos administration service.
 type CerbosAdminService struct {
+	sfGroup  singleflight.Group
 	store    storage.Store
 	auditLog audit.Log
 	*svcv1.UnimplementedCerbosAdminServiceServer
@@ -116,6 +119,49 @@ func (cas *CerbosAdminService) AddOrUpdateSchema(ctx context.Context, req *reque
 	return &responsev1.AddOrUpdateSchemaResponse{}, nil
 }
 
+func (cas *CerbosAdminService) InspectPolicies(ctx context.Context, req *requestv1.InspectPoliciesRequest) (*responsev1.InspectPoliciesResponse, error) {
+	if err := cas.checkCredentials(ctx); err != nil {
+		return nil, err
+	}
+
+	if cas.store == nil {
+		return nil, status.Error(codes.NotFound, "store is not configured")
+	}
+
+	// Filters are not scalable for non-mutable stores.
+	if _, ok := cas.store.(storage.MutableStore); !ok && (req.NameRegexp != "" || req.ScopeRegexp != "" || req.VersionRegexp != "") {
+		return nil, status.Error(codes.Unimplemented, "Store does not support regexp filters")
+	}
+
+	res, err, _ := cas.sfGroup.Do("inspect_policies", func() (any, error) {
+		filterParams := storage.ListPolicyIDsParams{
+			IDs:             req.PolicyId,
+			NameRegexp:      req.NameRegexp,
+			ScopeRegexp:     req.ScopeRegexp,
+			VersionRegexp:   req.VersionRegexp,
+			IncludeDisabled: req.IncludeDisabled,
+		}
+
+		res, err := cas.store.InspectPolicies(ctx, filterParams)
+		if err != nil {
+			logging.ReqScopeLog(ctx).Error("Could not inspect policies", zap.Error(err))
+			return nil, status.Error(codes.Internal, "could not inspect policies")
+		}
+
+		return res, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	results, ok := res.(map[string]*responsev1.InspectPoliciesResponse_Result)
+	if !ok {
+		return nil, fmt.Errorf("failed to type assert during inspect policies")
+	}
+
+	return &responsev1.InspectPoliciesResponse{Results: results}, nil
+}
+
 func (cas *CerbosAdminService) ListPolicies(ctx context.Context, req *requestv1.ListPoliciesRequest) (*responsev1.ListPoliciesResponse, error) {
 	if err := cas.checkCredentials(ctx); err != nil {
 		return nil, err
@@ -136,6 +182,7 @@ func (cas *CerbosAdminService) ListPolicies(ctx context.Context, req *requestv1.
 		ScopeRegexp:     req.ScopeRegexp,
 		VersionRegexp:   req.VersionRegexp,
 		IncludeDisabled: req.IncludeDisabled,
+		IDs:             req.PolicyId,
 	}
 
 	policyIDs, err := cas.store.ListPolicyIDs(context.Background(), filterParams)
@@ -474,7 +521,7 @@ func (cas *CerbosAdminService) checkCredentials(ctx context.Context) error {
 	}
 
 	parts := bytes.Split(bytes.TrimSpace(decoded), authSep)
-	if len(parts) != 2 { //nolint:gomnd
+	if len(parts) != 2 { //nolint:mnd
 		return status.Error(codes.Unauthenticated, "invalid credentials")
 	}
 

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package flagset
@@ -22,6 +22,9 @@ func (s Sort) Validate(kind policy.Kind, listing bool) error {
 		switch kind { //nolint:exhaustive
 		case policy.DerivedRolesKind:
 			return fmt.Errorf("value of --sort-by flag cannot be %q when listing derived roles", SortByVersion)
+
+		case policy.ExportConstantsKind:
+			return fmt.Errorf("value of --sort-by flag cannot be %q when listing exported constants", SortByVersion)
 
 		case policy.ExportVariablesKind:
 			return fmt.Errorf("value of --sort-by flag cannot be %q when listing exported variables", SortByVersion)

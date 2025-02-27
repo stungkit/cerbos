@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package parser_test
@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -28,12 +29,14 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
+	effectv1 "github.com/cerbos/cerbos/api/genpb/cerbos/effect/v1"
 	policyv1 "github.com/cerbos/cerbos/api/genpb/cerbos/policy/v1"
 	privatev1 "github.com/cerbos/cerbos/api/genpb/cerbos/private/v1"
 	sourcev1 "github.com/cerbos/cerbos/api/genpb/cerbos/source/v1"
 	"github.com/cerbos/cerbos/internal/namer"
 	"github.com/cerbos/cerbos/internal/parser"
 	"github.com/cerbos/cerbos/internal/test"
+	"github.com/cerbos/cerbos/internal/util"
 )
 
 func TestUnmarshal(t *testing.T) {
@@ -77,6 +80,8 @@ func TestUnmarshal(t *testing.T) {
 						requireErrorsEqual(t, want.Errors, haveSrc[i].Errors)
 					}
 				}
+			} else {
+				require.Empty(t, haveMsg)
 			}
 		})
 	}
@@ -253,7 +258,7 @@ func TestUnmarshalWKT(t *testing.T) {
 			wantErrs: []*sourcev1.Error{
 				{
 					Kind:     sourcev1.Error_KIND_PARSE_ERROR,
-					Message:  "failed to parse value: invalid value for string type: {",
+					Message:  "failed to parse value: invalid value for string field value: {",
 					Position: &sourcev1.Position{Line: 3, Column: 25, Path: "$.repeatedStringWrapper[0]"},
 				},
 			},
@@ -264,7 +269,7 @@ func TestUnmarshalWKT(t *testing.T) {
 			wantErrs: []*sourcev1.Error{
 				{
 					Kind:     sourcev1.Error_KIND_PARSE_ERROR,
-					Message:  "failed to parse value: invalid value for string type: {",
+					Message:  "failed to parse value: invalid value for string field value: {",
 					Position: &sourcev1.Position{Line: 4, Column: 9, Path: "$.repeatedStringWrapper[0]"},
 				},
 			},
@@ -359,4 +364,69 @@ func walkAST(node ast.Node) ast.Visitor {
 	tok := node.GetToken()
 	log.Printf("%s %s: %s -> %s", strings.Repeat(">", tok.Position.IndentNum+1), tok.Position, node.GetPath(), node.Type())
 	return astWalker(walkAST)
+}
+
+var Dummy uint64
+
+func BenchmarkUnmarshal(b *testing.B) {
+	factory := func() *policyv1.Policy { return &policyv1.Policy{} }
+	benchCases := []struct {
+		policy   *policyv1.Policy
+		numRules int
+	}{
+		{
+			numRules: 10,
+			policy:   generatePolicy(b, 10),
+		},
+		{
+			numRules: 50,
+			policy:   generatePolicy(b, 50),
+		},
+		{
+			numRules: 100,
+			policy:   generatePolicy(b, 100),
+		},
+		{
+			numRules: 500,
+			policy:   generatePolicy(b, 500),
+		},
+	}
+
+	for _, bc := range benchCases {
+		b.Run(strconv.Itoa(bc.numRules), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := range b.N {
+				b.StopTimer()
+				bc.policy.Metadata = &policyv1.Metadata{
+					Annotations: map[string]string{"iteration": strconv.Itoa(i)},
+					Hash:        wrapperspb.UInt64(rand.Uint64()), //nolint:gosec
+				}
+				buf := new(bytes.Buffer)
+				require.NoError(b, util.WriteYAML(buf, bc.policy))
+				b.SetBytes(int64(buf.Len()))
+				b.StartTimer()
+
+				policies, srcContexts, err := parser.Unmarshal(buf, factory)
+				require.NoError(b, err)
+				require.Len(b, policies, 1)
+				require.Len(b, srcContexts, 1)
+				Dummy |= bc.policy.GetMetadata().GetHash().GetValue()
+			}
+		})
+	}
+}
+
+func generatePolicy(b *testing.B, numRules int) *policyv1.Policy {
+	b.Helper()
+
+	pb := test.NewResourcePolicyBuilder("resource", "version")
+	pb = pb.WithDerivedRolesImports("a", "b", "c", "d", "e", "f")
+	for range numRules {
+		pb = pb.WithRules(test.NewResourceRule("create", "read", "update", "delete").
+			WithRoles("role_a", "role_b", "role_c", "role_d", "role_e").
+			WithMatchExpr("a == b", "c == d", "e == f", "g == h", "i == j").
+			WithEffect(effectv1.Effect_EFFECT_ALLOW).
+			Build())
+	}
+	return pb.Build()
 }

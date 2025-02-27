@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package healthcheck
@@ -70,7 +70,7 @@ func TestBuildFromServerConf(t *testing.T) {
 					Key:  keyPath,
 				},
 			},
-			wantAddr: "https://127.0.0.1:3592/_cerbos/health",
+			wantAddr: "https://127.0.0.1:3592/_cerbos/health?service=cerbos.svc.v1.CerbosService",
 		},
 		{
 			name: "http/tls/insecure",
@@ -83,7 +83,7 @@ func TestBuildFromServerConf(t *testing.T) {
 					Key:  keyPath,
 				},
 			},
-			wantAddr: "https://127.0.0.1:3592/_cerbos/health",
+			wantAddr: "https://127.0.0.1:3592/_cerbos/health?service=cerbos.svc.v1.CerbosService",
 		},
 		{
 			name: "http/no-tls",
@@ -92,7 +92,7 @@ func TestBuildFromServerConf(t *testing.T) {
 				HTTPListenAddr: ":3592",
 				GRPCListenAddr: ":3593",
 			},
-			wantAddr: "http://127.0.0.1:3592/_cerbos/health",
+			wantAddr: "http://127.0.0.1:3592/_cerbos/health?service=cerbos.svc.v1.CerbosService",
 		},
 		{
 			name: "http/specific-host",
@@ -101,12 +101,11 @@ func TestBuildFromServerConf(t *testing.T) {
 				HTTPListenAddr: "10.0.1.5:3592",
 				GRPCListenAddr: ":3593",
 			},
-			wantAddr: "http://10.0.1.5:3592/_cerbos/health",
+			wantAddr: "http://10.0.1.5:3592/_cerbos/health?service=cerbos.svc.v1.CerbosService",
 		},
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			have, err := tc.cmd.doBuildCheckFromConf(tc.conf)
 			if tc.wantErr {
@@ -169,23 +168,22 @@ func TestBuildManual(t *testing.T) {
 			name:     "http/tls/secure",
 			cmd:      &Cmd{Kind: "http"},
 			wantTLS:  true,
-			wantAddr: "https://127.0.0.1:3592/_cerbos/health",
+			wantAddr: "https://127.0.0.1:3592/_cerbos/health?service=cerbos.svc.v1.CerbosService",
 		},
 		{
 			name:     "http/tls/insecure",
 			cmd:      &Cmd{Kind: "http", Insecure: true, HostPort: "10.0.1.5:3592"},
 			wantTLS:  true,
-			wantAddr: "https://10.0.1.5:3592/_cerbos/health",
+			wantAddr: "https://10.0.1.5:3592/_cerbos/health?service=cerbos.svc.v1.CerbosService",
 		},
 		{
 			name:     "http/no-tls",
 			cmd:      &Cmd{Kind: "http", NoTLS: true},
-			wantAddr: "http://127.0.0.1:3592/_cerbos/health",
+			wantAddr: "http://127.0.0.1:3592/_cerbos/health?service=cerbos.svc.v1.CerbosService",
 		},
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			have, err := tc.cmd.doBuildCheckManual()
 			if tc.wantErr {

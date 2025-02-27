@@ -1,13 +1,16 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package util
 
 import (
 	"crypto/tls"
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
+
+	"google.golang.org/grpc"
 )
 
 // ParseListenAddress parses an address and returns the network type and the address to dial.
@@ -72,4 +75,15 @@ func GetFreePort() (int, error) {
 	}
 
 	return strconv.Atoi(p)
+}
+
+// EagerGRPCClient creates a gRPC client and establishes a connection immediately.
+func EagerGRPCClient(target string, dialOpts ...grpc.DialOption) (*grpc.ClientConn, error) {
+	client, err := grpc.NewClient("passthrough:///"+target, dialOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
+	}
+
+	client.Connect()
+	return client, nil
 }

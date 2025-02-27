@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package git
@@ -20,6 +20,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	policyv1 "github.com/cerbos/cerbos/api/genpb/cerbos/policy/v1"
+	responsev1 "github.com/cerbos/cerbos/api/genpb/cerbos/response/v1"
 	"github.com/cerbos/cerbos/internal/config"
 	"github.com/cerbos/cerbos/internal/namer"
 	"github.com/cerbos/cerbos/internal/observability/metrics"
@@ -72,6 +73,7 @@ func NewStore(ctx context.Context, conf *Conf) (*Store, error) {
 		return nil, err
 	}
 
+	metrics.Record(ctx, metrics.StoreLastSuccessfulRefresh(), time.Now().UnixMilli(), metrics.DriverKey(DriverName))
 	return s, nil
 }
 
@@ -98,7 +100,7 @@ func (s *Store) init(ctx context.Context) error {
 
 	// if the directory does not exist, create it and clone the repo
 	if errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(s.conf.CheckoutDir, 0o744); err != nil { //nolint:gomnd
+		if err := os.MkdirAll(s.conf.CheckoutDir, 0o744); err != nil { //nolint:mnd
 			return fmt.Errorf("failed to create directory %s: %w", s.conf.CheckoutDir, err)
 		}
 
@@ -140,6 +142,14 @@ func (s *Store) GetFirstMatch(_ context.Context, candidates []namer.ModuleID) (*
 	return s.idx.GetFirstMatch(candidates)
 }
 
+func (s *Store) GetAll(ctx context.Context) ([]*policy.CompilationUnit, error) {
+	return s.idx.GetAll(ctx)
+}
+
+func (s *Store) GetAllMatching(_ context.Context, modIDs []namer.ModuleID) ([]*policy.CompilationUnit, error) {
+	return s.idx.GetAllMatching(modIDs)
+}
+
 func (s *Store) GetCompilationUnits(_ context.Context, ids ...namer.ModuleID) (map[namer.ModuleID]*policy.CompilationUnit, error) {
 	return s.idx.GetCompilationUnits(ids...)
 }
@@ -148,8 +158,12 @@ func (s *Store) GetDependents(_ context.Context, ids ...namer.ModuleID) (map[nam
 	return s.idx.GetDependents(ids...)
 }
 
-func (s *Store) ListPolicyIDs(ctx context.Context, _ storage.ListPolicyIDsParams) ([]string, error) {
-	return s.idx.ListPolicyIDs(ctx)
+func (s *Store) InspectPolicies(ctx context.Context, params storage.ListPolicyIDsParams) (map[string]*responsev1.InspectPoliciesResponse_Result, error) {
+	return s.idx.InspectPolicies(ctx, params.IDs...)
+}
+
+func (s *Store) ListPolicyIDs(ctx context.Context, params storage.ListPolicyIDsParams) ([]string, error) {
+	return s.idx.ListPolicyIDs(ctx, params.IDs...)
 }
 
 func (s *Store) ListSchemaIDs(ctx context.Context) ([]string, error) {
@@ -180,6 +194,8 @@ func (s *Store) Reload(ctx context.Context) error {
 	}
 
 	s.NotifySubscribers(evts...)
+
+	metrics.Record(ctx, metrics.StoreLastSuccessfulRefresh(), time.Now().UnixMilli(), metrics.DriverKey(DriverName))
 	return nil
 }
 
@@ -541,10 +557,11 @@ func (s *Store) pollForUpdates(ctx context.Context) {
 		case <-ticker.C:
 			if err := s.updateIndex(ctx); err != nil {
 				s.log.Errorw("Failed to check for updates", "error", err)
-				metrics.Inc(context.Background(), metrics.StoreSyncErrorCount(), metrics.DriverKey(DriverName))
+				metrics.Inc(ctx, metrics.StoreSyncErrorCount(), metrics.DriverKey(DriverName))
 			}
 
-			metrics.Inc(context.Background(), metrics.StorePollCount(), metrics.DriverKey(DriverName))
+			metrics.Inc(ctx, metrics.StorePollCount(), metrics.DriverKey(DriverName))
+			metrics.Record(ctx, metrics.StoreLastSuccessfulRefresh(), time.Now().UnixMilli(), metrics.DriverKey(DriverName))
 		}
 	}
 }

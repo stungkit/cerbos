@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 //go:build loadtest
@@ -101,7 +101,7 @@ func prepOutDirs(out string) error {
 
 	for _, outDir := range tmplOutConf {
 		path := filepath.Join(out, outDir)
-		//nolint:gomnd
+		//nolint:mnd
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			return fmt.Errorf("failed to create %q: %w", path, err)
 		}

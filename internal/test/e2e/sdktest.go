@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 //go:build tests || e2e
@@ -35,7 +35,7 @@ func TestSDKClient(addr string, opts ...cerbos.Opt) func(*testing.T) {
 
 	//nolint:thelper
 	return func(t *testing.T) {
-		token := generateToken(t, time.Now().Add(5*time.Minute)) //nolint:gomnd
+		token := generateToken(t, time.Now().Add(5*time.Minute)) //nolint:mnd
 		c := c.With(
 			cerbos.AuxDataJWT(token, ""),
 			cerbos.IncludeMeta(true),
@@ -99,7 +99,7 @@ func TestSDKClient(addr string, opts ...cerbos.Opt) func(*testing.T) {
 			}
 
 			t.Run("Direct", func(t *testing.T) {
-				ctx, cancelFunc := context.WithTimeout(context.Background(), timeout)
+				ctx, cancelFunc := context.WithTimeout(t.Context(), timeout)
 				defer cancelFunc()
 
 				have, err := c.CheckResources(ctx, principal, resources)
@@ -109,7 +109,7 @@ func TestSDKClient(addr string, opts ...cerbos.Opt) func(*testing.T) {
 			})
 
 			t.Run("WithPrincipal", func(t *testing.T) {
-				ctx, cancelFunc := context.WithTimeout(context.Background(), timeout)
+				ctx, cancelFunc := context.WithTimeout(t.Context(), timeout)
 				defer cancelFunc()
 
 				have, err := c.WithPrincipal(principal).CheckResources(ctx, resources)
@@ -172,7 +172,7 @@ func TestSDKClient(addr string, opts ...cerbos.Opt) func(*testing.T) {
 			}
 
 			t.Run("Direct", func(t *testing.T) {
-				ctx, cancelFunc := context.WithTimeout(context.Background(), timeout)
+				ctx, cancelFunc := context.WithTimeout(t.Context(), timeout)
 				defer cancelFunc()
 
 				have, err := c.CheckResources(ctx, principal, resources)
@@ -180,7 +180,7 @@ func TestSDKClient(addr string, opts ...cerbos.Opt) func(*testing.T) {
 			})
 
 			t.Run("WithPrincipal", func(t *testing.T) {
-				ctx, cancelFunc := context.WithTimeout(context.Background(), timeout)
+				ctx, cancelFunc := context.WithTimeout(t.Context(), timeout)
 				defer cancelFunc()
 
 				have, err := c.WithPrincipal(principal).CheckResources(ctx, resources)
@@ -244,7 +244,7 @@ func TestSDKClient(addr string, opts ...cerbos.Opt) func(*testing.T) {
 			}
 
 			t.Run("Direct", func(t *testing.T) {
-				ctx, cancelFunc := context.WithTimeout(context.Background(), timeout)
+				ctx, cancelFunc := context.WithTimeout(t.Context(), timeout)
 				defer cancelFunc()
 
 				have, err := c.CheckResources(ctx, principal, resources)
@@ -252,7 +252,7 @@ func TestSDKClient(addr string, opts ...cerbos.Opt) func(*testing.T) {
 			})
 
 			t.Run("WithPrincipal", func(t *testing.T) {
-				ctx, cancelFunc := context.WithTimeout(context.Background(), timeout)
+				ctx, cancelFunc := context.WithTimeout(t.Context(), timeout)
 				defer cancelFunc()
 
 				have, err := c.WithPrincipal(principal).CheckResources(ctx, resources)
@@ -281,7 +281,7 @@ func TestSDKClient(addr string, opts ...cerbos.Opt) func(*testing.T) {
 				})
 
 			t.Run("Direct", func(t *testing.T) {
-				ctx, cancelFunc := context.WithTimeout(context.Background(), timeout)
+				ctx, cancelFunc := context.WithTimeout(t.Context(), timeout)
 				defer cancelFunc()
 
 				have, err := c.IsAllowed(ctx, principal, resource, "defer")
@@ -290,7 +290,7 @@ func TestSDKClient(addr string, opts ...cerbos.Opt) func(*testing.T) {
 			})
 
 			t.Run("WithPrincipal", func(t *testing.T) {
-				ctx, cancelFunc := context.WithTimeout(context.Background(), timeout)
+				ctx, cancelFunc := context.WithTimeout(t.Context(), timeout)
 				defer cancelFunc()
 
 				have, err := c.WithPrincipal(principal).IsAllowed(ctx, resource, "defer")
@@ -329,7 +329,7 @@ func TestSDKClient(addr string, opts ...cerbos.Opt) func(*testing.T) {
 			}
 
 			t.Run("Direct", func(t *testing.T) {
-				ctx, cancelFunc := context.WithTimeout(context.Background(), timeout)
+				ctx, cancelFunc := context.WithTimeout(t.Context(), timeout)
 				defer cancelFunc()
 
 				have, err := cc.PlanResources(ctx, principal, resource, "approve")
@@ -337,7 +337,7 @@ func TestSDKClient(addr string, opts ...cerbos.Opt) func(*testing.T) {
 			})
 
 			t.Run("WithPrincipal", func(t *testing.T) {
-				ctx, cancelFunc := context.WithTimeout(context.Background(), timeout)
+				ctx, cancelFunc := context.WithTimeout(t.Context(), timeout)
 				defer cancelFunc()
 
 				have, err := cc.WithPrincipal(principal).PlanResources(ctx, resource, "approve")
@@ -355,7 +355,7 @@ func generateToken(t *testing.T, expiry time.Time) string {
 	require.NoError(t, token.Set(jwt.AudienceKey, "cerbos-jwt-tests"))
 	require.NoError(t, token.Set(jwt.ExpirationKey, expiry))
 	require.NoError(t, token.Set("customString", "foobar"))
-	require.NoError(t, token.Set("customInt", 42)) //nolint:gomnd
+	require.NoError(t, token.Set("customInt", 42)) //nolint:mnd
 	require.NoError(t, token.Set("customArray", []string{"A", "B", "C"}))
 	require.NoError(t, token.Set("customMap", map[string]any{"A": "AA", "B": "BB", "C": "CC"}))
 

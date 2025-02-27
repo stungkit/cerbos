@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package local
@@ -84,6 +84,7 @@ func (d *decisionLogEntryCollector) add(v []byte) error {
 	}
 
 	// convert old format records to new format
+	//nolint:staticcheck
 	if entry.GetInputs() != nil && entry.GetCheckResources() == nil {
 		entry.Method = &auditv1.DecisionLogEntry_CheckResources_{
 			CheckResources: &auditv1.DecisionLogEntry_CheckResources{

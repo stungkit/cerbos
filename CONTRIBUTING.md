@@ -27,7 +27,7 @@ Submitting pull requests
 - Write idiomatic Go. [Effective Go](https://golang.org/doc/effective_go) is the canonical source while the [Uber style guide](https://github.com/uber-go/guide/blob/master/style.md) contains a lot of good advice as well.
 - Make sure each source file contains the appropriate licence header:
     ```
-    Copyright 2021-2024 Zenauth Ltd.
+    Copyright 2021-2025 Zenauth Ltd.
     SPDX-License-Identifier: Apache-2.0
     ```
 - Add tests to cover the functionality you are adding or modifying.
@@ -55,14 +55,15 @@ Developing Cerbos
 
 Cerbos is developed using the [Go programming language](https://golang.org). Check the `go` directive in the `go.mod` file to find out the minimum version of Go required.
 
-The `Makefile` automatically installs required build tools using the versions defined in `tools/go.mod`. Run `make clean-tools` to clear the cache and force the installation of new versions.
+[Just](https://just.systems/man/en/chapter_4.html) (a better alternative to `make`) is used as the build scripting system and needs to be installed on the system. Other required build tools are automatically downloaded on demand using the versions defined in `tools/go.mod`.
 
-Useful `make` targets:
+Run `just` to list all available build targets. Some of the frequently used targets are:
 
-- `make build`: Compile, test and build the Cerbos binaries and container. Binaries will be output to the `dist` directory. The container name would be `ghcr.io/cerbos/cerbos:<VERSION>-prerelease`.
-- `make pre-commit`: Run tests, lint, and generate code and documentation. Run this before submitting a PR to make sure your code is ready to submit.
-- `make dev-server`: Start a Cerbos server
-- `make docs`: Generate docs and preview in browser.
+- `just tests`: Run all tests.
+- `just build`: Compile, test and build the Cerbos binaries and container. Binaries will be output to the `dist` directory. The container name would be `ghcr.io/cerbos/cerbos:<VERSION>-prerelease`.
+- `just pre-commit`: Run tests, lint, and generate code and documentation. Run this before submitting a PR to make sure your code is ready to submit.
+- `just dev-server`: Start a Cerbos server. Alternatively, use `just cerbos [ARGS]` or `just cerbosctl [ARGS]` to launch Cerbos or Cerbosctl from source.
+- `just docs`: Generate docs and preview in browser.
 
 
 Getting Help

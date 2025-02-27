@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package verify
@@ -11,19 +11,20 @@ import (
 	"os"
 	"time"
 
+	"github.com/cerbos/cloud-api/bundle"
+	"go.uber.org/zap"
+
+	enginev1 "github.com/cerbos/cerbos/api/genpb/cerbos/engine/v1"
 	policyv1 "github.com/cerbos/cerbos/api/genpb/cerbos/policy/v1"
 	runtimev1 "github.com/cerbos/cerbos/api/genpb/cerbos/runtime/v1"
 	internalcompile "github.com/cerbos/cerbos/internal/compile"
 	"github.com/cerbos/cerbos/internal/engine"
 	"github.com/cerbos/cerbos/internal/schema"
-	"github.com/cerbos/cerbos/internal/storage/bundle"
 	"github.com/cerbos/cerbos/internal/storage/disk"
+	"github.com/cerbos/cerbos/internal/storage/hub"
 	"github.com/cerbos/cerbos/internal/storage/index"
 	"github.com/cerbos/cerbos/internal/verify"
 	"github.com/cerbos/cerbos/private/compile"
-
-	enginev1 "github.com/cerbos/cerbos/api/genpb/cerbos/engine/v1"
-	"go.uber.org/zap"
 )
 
 // Files runs tests using the policy files in the given file system.
@@ -48,10 +49,7 @@ func Files(ctx context.Context, fsys fs.FS, idx compile.Index) (*policyv1.TestRe
 	store := disk.NewFromIndexWithConf(idx, &disk.Conf{})
 	schemaMgr := schema.NewFromConf(ctx, store, schema.NewConf(schema.EnforcementReject))
 	compiler := internalcompile.NewManagerFromDefaultConf(ctx, store, schemaMgr)
-	eng, err := engine.NewEphemeral(compiler, schemaMgr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create engine: %w", err)
-	}
+	eng := engine.NewEphemeral(nil, compiler, schemaMgr)
 
 	results, err := verify.Verify(ctx, fsys, eng, verify.Config{Trace: true})
 	if err != nil {
@@ -69,19 +67,17 @@ type BundleParams struct {
 
 // Bundle runs tests using the given policy bundle.
 func Bundle(ctx context.Context, params BundleParams) (*policyv1.TestResults, error) {
-	bundleSrc, err := bundle.NewLocalSource(bundle.LocalParams{
-		BundlePath: params.BundlePath,
-		TempDir:    params.WorkDir,
+	bundleSrc, err := hub.NewLocalSource(hub.LocalParams{
+		BundlePath:    params.BundlePath,
+		BundleVersion: bundle.Version1,
+		TempDir:       params.WorkDir,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create local bundle source from %q: %w", params.BundlePath, err)
 	}
 
 	schemaMgr := schema.NewFromConf(ctx, bundleSrc, schema.NewConf(schema.EnforcementReject))
-	eng, err := engine.NewEphemeral(bundleSrc, schemaMgr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create engine: %w", err)
-	}
+	eng := engine.NewEphemeral(nil, bundleSrc, schemaMgr)
 
 	results, err := verify.Verify(ctx, os.DirFS(params.TestsDir), eng, verify.Config{Trace: true})
 	if err != nil {
@@ -94,6 +90,7 @@ func Bundle(ctx context.Context, params BundleParams) (*policyv1.TestResults, er
 type CheckOptions interface {
 	Globals() map[string]any
 	NowFunc() func() time.Time
+	DefaultPolicyVersion() string
 	LenientScopeSearch() bool
 }
 
@@ -103,26 +100,26 @@ type Checker interface {
 
 type Opt func(config *verify.Config)
 
-func WithResourceTestFilter(names ...string) Opt {
+func WithExcludedResourcePolicyFQNs(fqns ...string) Opt {
 	return func(config *verify.Config) {
-		if config.RunResources == nil {
-			config.RunResources = make(map[string]struct{}, len(names))
+		if config.ExcludedResourcePolicyFQNs == nil {
+			config.ExcludedResourcePolicyFQNs = make(map[string]struct{}, len(fqns))
 		}
 
-		for _, n := range names {
-			config.RunResources[n] = struct{}{}
+		for _, fqn := range fqns {
+			config.ExcludedResourcePolicyFQNs[fqn] = struct{}{}
 		}
 	}
 }
 
-func WithPrincipalTestFilter(names ...string) Opt {
+func WithExcludedPrincipalPolicyFQNs(fqns ...string) Opt {
 	return func(config *verify.Config) {
-		if config.RunPrincipals == nil {
-			config.RunPrincipals = make(map[string]struct{}, len(names))
+		if config.ExcludedPrincipalPolicyFQNs == nil {
+			config.ExcludedPrincipalPolicyFQNs = make(map[string]struct{}, len(fqns))
 		}
 
-		for _, n := range names {
-			config.RunPrincipals[n] = struct{}{}
+		for _, fqn := range fqns {
+			config.ExcludedPrincipalPolicyFQNs[fqn] = struct{}{}
 		}
 	}
 }

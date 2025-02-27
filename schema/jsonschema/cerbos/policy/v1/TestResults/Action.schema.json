@@ -67,6 +67,12 @@
         "resource": {
           "type": "string"
         },
+        "role": {
+          "type": "string"
+        },
+        "rolePolicyScope": {
+          "type": "string"
+        },
         "rule": {
           "type": "string"
         },
@@ -95,7 +101,9 @@
         "KIND_SCOPE",
         "KIND_VARIABLE",
         "KIND_VARIABLES",
-        "KIND_OUTPUT"
+        "KIND_OUTPUT",
+        "KIND_ROLE_POLICY_SCOPE",
+        "KIND_ROLE"
       ]
     },
     "cerbos.engine.v1.Trace.Component.Variable": {
@@ -157,6 +165,9 @@
         },
         "result": {
           "$ref": "#/definitions/cerbos.policy.v1.TestResults.Result"
+        },
+        "skipReason": {
+          "type": "string"
         },
         "success": {
           "$ref": "#/definitions/cerbos.policy.v1.TestResults.Success"

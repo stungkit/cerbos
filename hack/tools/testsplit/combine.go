@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package main
@@ -37,7 +37,7 @@ func (cmd *combineCmd) Run() error {
 		return fmt.Errorf("failed to marshal test times: %w", err)
 	}
 
-	err = os.WriteFile(testTimesPath, data, 0o600) //nolint:gomnd
+	err = os.WriteFile(testTimesPath, data, 0o600) //nolint:mnd
 	if err != nil {
 		return fmt.Errorf("failed to write test times: %w", err)
 	}

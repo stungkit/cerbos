@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package internal
@@ -14,13 +14,16 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/doug-martin/goqu/v9/exp"
 	"github.com/jackc/pgtype"
 	"go.uber.org/zap"
 
+	responsev1 "github.com/cerbos/cerbos/api/genpb/cerbos/response/v1"
 	schemav1 "github.com/cerbos/cerbos/api/genpb/cerbos/schema/v1"
+	"github.com/cerbos/cerbos/internal/inspect"
 	"github.com/cerbos/cerbos/internal/namer"
 	"github.com/cerbos/cerbos/internal/observability/metrics"
 	"github.com/cerbos/cerbos/internal/parser"
@@ -30,7 +33,10 @@ import (
 	"github.com/cerbos/cerbos/internal/storage/db"
 )
 
-const tableLogKey = "table"
+const (
+	driverName  = "db"
+	tableLogKey = "table"
+)
 
 var errUpsertPolicyRequired = errors.New("invalid driver configuration: upsertPolicy is required")
 
@@ -41,10 +47,13 @@ type DBStorage interface {
 	storage.Verifiable
 	AddOrUpdate(ctx context.Context, policies ...policy.Wrapper) error
 	GetFirstMatch(ctx context.Context, candidates []namer.ModuleID) (*policy.CompilationUnit, error)
+	GetAll(ctx context.Context) ([]*policy.CompilationUnit, error)
+	GetAllMatching(ctx context.Context, modIDs []namer.ModuleID) ([]*policy.CompilationUnit, error)
 	GetCompilationUnits(ctx context.Context, ids ...namer.ModuleID) (map[namer.ModuleID]*policy.CompilationUnit, error)
 	GetDependents(ctx context.Context, ids ...namer.ModuleID) (map[namer.ModuleID][]namer.ModuleID, error)
 	HasDescendants(ctx context.Context, ids ...namer.ModuleID) (map[namer.ModuleID]bool, error)
 	Delete(ctx context.Context, ids ...namer.ModuleID) error
+	InspectPolicies(ctx context.Context, params storage.ListPolicyIDsParams) (map[string]*responsev1.InspectPoliciesResponse_Result, error)
 	ListPolicyIDs(ctx context.Context, params storage.ListPolicyIDsParams) ([]string, error)
 	ListSchemaIDs(ctx context.Context) ([]string, error)
 	AddOrUpdateSchema(ctx context.Context, schemas ...*schemav1.Schema) error
@@ -306,9 +315,39 @@ func (s *dbStorage) GetFirstMatch(ctx context.Context, candidates []namer.Module
 	return nil, nil
 }
 
+func (s *dbStorage) GetAll(ctx context.Context) ([]*policy.CompilationUnit, error) {
+	policyKeys, err := s.ListPolicyIDs(ctx, storage.ListPolicyIDsParams{})
+	if err != nil {
+		return nil, err
+	}
+
+	modIDs := make([]namer.ModuleID, len(policyKeys))
+	for i, k := range policyKeys {
+		modIDs[i] = namer.GenModuleIDFromFQN(namer.FQNFromPolicyKey(k))
+	}
+
+	return s.GetAllMatching(ctx, modIDs)
+}
+
+func (s *dbStorage) GetAllMatching(ctx context.Context, modIDs []namer.ModuleID) ([]*policy.CompilationUnit, error) {
+	cus, err := s.GetCompilationUnits(ctx, modIDs...)
+	if err != nil {
+		return nil, err
+	}
+
+	res := make([]*policy.CompilationUnit, len(cus))
+	var i int
+	for _, cu := range cus {
+		res[i] = cu
+		i++
+	}
+
+	return res, nil
+}
+
 func (s *dbStorage) GetCompilationUnits(ctx context.Context, ids ...namer.ModuleID) (map[namer.ModuleID]*policy.CompilationUnit, error) {
 	// Rather than writing a proper recursive query (which is pretty much impossible to do in a database-agnostic way), we're
-	// exploiting the fact that we have a maximum of two levels of dependency (resourcePolicy -> derivedRoles -> exportVariables).
+	// exploiting the fact that we have a maximum of two levels of dependency (resourcePolicy -> derivedRoles -> exportConstants/Variables).
 
 	policiesQuery := s.newGetCompilationUnitsQueryBuilder(ids)
 	directDepsQuery := policiesQuery.JoinDependencies()
@@ -652,34 +691,14 @@ func (s *dbStorage) Delete(ctx context.Context, ids ...namer.ModuleID) error {
 	return nil
 }
 
-func (s *dbStorage) ListPolicyIDs(ctx context.Context, listParams storage.ListPolicyIDsParams) ([]string, error) {
+func (s *dbStorage) InspectPolicies(ctx context.Context, listParams storage.ListPolicyIDsParams) (map[string]*responsev1.InspectPoliciesResponse_Result, error) {
+	whereExprs, postFilters, err := s.whereExprAndPostFilters(listParams)
+	if err != nil {
+		return nil, err
+	}
+
 	var policyCoords []namer.PolicyCoords
-	var whereExprs []exp.Expression
-	var postFilters []postRegexpFilter
-
-	if !listParams.IncludeDisabled {
-		whereExprs = append(whereExprs, goqu.C(PolicyTblDisabledCol).Neq(goqu.V(true)))
-	}
-
-	if listParams.NameRegexp != "" {
-		if err := s.updateRegexpFilters(listParams.NameRegexp, PolicyTblNameCol, &whereExprs, &postFilters); err != nil {
-			return nil, err
-		}
-	}
-
-	if listParams.ScopeRegexp != "" {
-		if err := s.updateRegexpFilters(listParams.ScopeRegexp, PolicyTblScopeCol, &whereExprs, &postFilters); err != nil {
-			return nil, err
-		}
-	}
-
-	if listParams.VersionRegexp != "" {
-		if err := s.updateRegexpFilters(listParams.VersionRegexp, PolicyTblVerCol, &whereExprs, &postFilters); err != nil {
-			return nil, err
-		}
-	}
-
-	err := s.db.From(PolicyTbl).
+	if err := s.db.From(PolicyTbl).
 		Select(
 			goqu.C(PolicyTblKindCol),
 			goqu.C(PolicyTblNameCol),
@@ -694,8 +713,50 @@ func (s *dbStorage) ListPolicyIDs(ctx context.Context, listParams storage.ListPo
 			goqu.C(PolicyTblScopeCol).Asc(),
 		).
 		Executor().
-		ScanStructsContext(ctx, &policyCoords)
+		ScanStructsContext(ctx, &policyCoords); err != nil {
+		return nil, fmt.Errorf("could not execute %q query: %w", "InspectPolicies", err)
+	}
+
+	policyIDs := make([]string, 0, len(policyCoords))
+	for _, pc := range policyCoords {
+		if checkPostFilters(pc, postFilters) {
+			policyIDs = append(policyIDs, pc.PolicyKey())
+		}
+	}
+
+	ins := inspect.Policies()
+	if err := storage.BatchLoadPolicy(ctx, storage.MaxPoliciesInBatch, s.LoadPolicy, func(wp *policy.Wrapper) error {
+		return ins.Inspect(wp.Policy)
+	}, policyIDs...); err != nil {
+		return nil, fmt.Errorf("failed to load policies: %w", err)
+	}
+
+	return ins.Results(ctx, s.LoadPolicy)
+}
+
+func (s *dbStorage) ListPolicyIDs(ctx context.Context, listParams storage.ListPolicyIDsParams) ([]string, error) {
+	whereExprs, postFilters, err := s.whereExprAndPostFilters(listParams)
 	if err != nil {
+		return nil, err
+	}
+
+	var policyCoords []namer.PolicyCoords
+	if err = s.db.From(PolicyTbl).
+		Select(
+			goqu.C(PolicyTblKindCol),
+			goqu.C(PolicyTblNameCol),
+			goqu.C(PolicyTblVerCol),
+			goqu.COALESCE(goqu.C(PolicyTblScopeCol), "").As(PolicyTblScopeCol),
+		).
+		Where(whereExprs...).
+		Order(
+			goqu.C(PolicyTblKindCol).Asc(),
+			goqu.C(PolicyTblNameCol).Asc(),
+			goqu.C(PolicyTblVerCol).Asc(),
+			goqu.C(PolicyTblScopeCol).Asc(),
+		).
+		Executor().
+		ScanStructsContext(ctx, &policyCoords); err != nil {
 		return nil, fmt.Errorf("could not execute %q query: %w", "ListPolicyIDs", err)
 	}
 
@@ -712,6 +773,44 @@ func (s *dbStorage) ListPolicyIDs(ctx context.Context, listParams storage.ListPo
 type postRegexpFilter struct {
 	re  *regexp.Regexp
 	col string
+}
+
+func (s *dbStorage) whereExprAndPostFilters(listParams storage.ListPolicyIDsParams) (whereExprs []exp.Expression, postFilters []postRegexpFilter, err error) {
+	if !listParams.IncludeDisabled {
+		whereExprs = append(whereExprs, goqu.C(PolicyTblDisabledCol).Neq(goqu.V(true)))
+	}
+
+	if listParams.NameRegexp != "" {
+		if err = s.updateRegexpFilters(listParams.NameRegexp, PolicyTblNameCol, &whereExprs, &postFilters); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if listParams.ScopeRegexp != "" {
+		if err := s.updateRegexpFilters(listParams.ScopeRegexp, PolicyTblScopeCol, &whereExprs, &postFilters); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if listParams.VersionRegexp != "" {
+		if err := s.updateRegexpFilters(listParams.VersionRegexp, PolicyTblVerCol, &whereExprs, &postFilters); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if len(listParams.IDs) > 0 {
+		moduleIDs := make([]namer.ModuleID, len(listParams.IDs))
+		for i, pk := range listParams.IDs {
+			moduleIDs[i] = namer.GenModuleIDFromFQN(namer.FQNFromPolicyKey(pk))
+		}
+
+		whereExprs = append(
+			whereExprs,
+			goqu.C(PolicyTblIDCol).In(moduleIDs),
+		)
+	}
+
+	return whereExprs, postFilters, nil
 }
 
 // updateRegexpFilters updates either `whereExprs` or `postFilters` in place, dependent on whether regexp support is enabled or not.
@@ -736,8 +835,7 @@ func (s *dbStorage) updateRegexpFilters(namePattern, col string, whereExprs *[]e
 }
 
 func (s *dbStorage) regexpEnabled() bool {
-	// TODO(saml) link this to the `dialect` arg passed to `goqu` in the sqlserver package, or rethink how to indicate regexp support
-	return s.db.Dialect() != "sqlserver"
+	return true
 }
 
 func checkPostFilters(pc namer.PolicyCoords, postFilters []postRegexpFilter) bool {
@@ -801,12 +899,16 @@ func (s *dbStorage) RepoStats(ctx context.Context) storage.RepoStats {
 		switch r.Kind {
 		case policy.DerivedRolesKindStr:
 			stats.PolicyCount[policy.DerivedRolesKind] = r.Count
+		case policy.ExportConstantsKindStr:
+			stats.PolicyCount[policy.ExportConstantsKind] = r.Count
 		case policy.ExportVariablesKindStr:
 			stats.PolicyCount[policy.ExportVariablesKind] = r.Count
 		case policy.PrincipalKindStr:
 			stats.PolicyCount[policy.PrincipalKind] = r.Count
 		case policy.ResourceKindStr:
 			stats.PolicyCount[policy.ResourceKind] = r.Count
+		case policy.RolePolicyKindStr:
+			stats.PolicyCount[policy.RolePolicyKind] = r.Count
 		}
 	}
 
@@ -818,8 +920,9 @@ func (s *dbStorage) RepoStats(ctx context.Context) storage.RepoStats {
 	return stats
 }
 
-func (s *dbStorage) Reload(context.Context) error {
+func (s *dbStorage) Reload(ctx context.Context) error {
 	s.NotifySubscribers(storage.NewReloadEvent())
+	metrics.Record(ctx, metrics.StoreLastSuccessfulRefresh(), time.Now().UnixMilli(), metrics.DriverKey(driverName))
 	return nil
 }
 

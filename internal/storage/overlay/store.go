@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package overlay
@@ -9,17 +9,16 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/sony/gobreaker/v2"
+	"github.com/sourcegraph/conc/pool"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 
+	responsev1 "github.com/cerbos/cerbos/api/genpb/cerbos/response/v1"
 	runtimev1 "github.com/cerbos/cerbos/api/genpb/cerbos/runtime/v1"
-
-	"github.com/sony/gobreaker"
-	"github.com/sourcegraph/conc/pool"
-
 	"github.com/cerbos/cerbos/internal/compile"
 	"github.com/cerbos/cerbos/internal/config"
-	"github.com/cerbos/cerbos/internal/engine"
+	"github.com/cerbos/cerbos/internal/engine/policyloader"
 	"github.com/cerbos/cerbos/internal/namer"
 	"github.com/cerbos/cerbos/internal/schema"
 	"github.com/cerbos/cerbos/internal/storage"
@@ -100,12 +99,12 @@ type Store struct {
 	conf                 *Conf
 	baseStore            storage.Store
 	fallbackStore        storage.Store
-	basePolicyLoader     engine.PolicyLoader
-	fallbackPolicyLoader engine.PolicyLoader
-	circuitBreaker       *gobreaker.CircuitBreaker
+	basePolicyLoader     policyloader.PolicyLoader
+	fallbackPolicyLoader policyloader.PolicyLoader
+	circuitBreaker       *gobreaker.CircuitBreaker[any]
 }
 
-func newCircuitBreaker(conf *Conf) *gobreaker.CircuitBreaker {
+func newCircuitBreaker(conf *Conf) *gobreaker.CircuitBreaker[any] {
 	breakerSettings := gobreaker.Settings{
 		Name: "Store",
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
@@ -114,12 +113,12 @@ func newCircuitBreaker(conf *Conf) *gobreaker.CircuitBreaker {
 		Interval: conf.FallbackErrorWindow,
 		Timeout:  0,
 	}
-	return gobreaker.NewCircuitBreaker(breakerSettings)
+	return gobreaker.NewCircuitBreaker[any](breakerSettings)
 }
 
 // GetOverlayPolicyLoader instantiates both the base and fallback policy loaders and then returns itself.
-func (s *Store) GetOverlayPolicyLoader(ctx context.Context, schemaMgr schema.Manager) (engine.PolicyLoader, error) {
-	getPolicyLoader := func(storeInterface storage.Store, key string) (engine.PolicyLoader, error) {
+func (s *Store) GetOverlayPolicyLoader(ctx context.Context, schemaMgr schema.Manager) (policyloader.PolicyLoader, error) {
+	getPolicyLoader := func(storeInterface storage.Store, key string) (policyloader.PolicyLoader, error) {
 		switch st := storeInterface.(type) {
 		case storage.SourceStore:
 			pl, err := compile.NewManager(ctx, st, schemaMgr)
@@ -153,7 +152,6 @@ func withCircuitBreaker[T any](s *Store, baseFn, fallbackFn func() (T, error)) (
 
 	s.log.Debug("Calling overlay base method")
 	result, err := s.circuitBreaker.Execute(func() (interface{}, error) {
-		// TODO(saml) only increment on network specific errors?
 		return baseFn()
 	})
 
@@ -175,6 +173,16 @@ func (s *Store) GetFirstMatch(ctx context.Context, candidates []namer.ModuleID) 
 	)
 }
 
+func (s *Store) GetAllMatching(ctx context.Context, modIDs []namer.ModuleID) ([]*runtimev1.RunnablePolicySet, error) {
+	return withCircuitBreaker(
+		s,
+		func() ([]*runtimev1.RunnablePolicySet, error) { return s.basePolicyLoader.GetAllMatching(ctx, modIDs) },
+		func() ([]*runtimev1.RunnablePolicySet, error) {
+			return s.fallbackPolicyLoader.GetAllMatching(ctx, modIDs)
+		},
+	)
+}
+
 //
 // Store interface methods
 //
@@ -183,11 +191,33 @@ func (s *Store) Driver() string {
 	return DriverName
 }
 
+func (s *Store) GetAll(ctx context.Context) ([]*runtimev1.RunnablePolicySet, error) {
+	return withCircuitBreaker(
+		s,
+		func() ([]*runtimev1.RunnablePolicySet, error) { return s.basePolicyLoader.GetAll(ctx) },
+		func() ([]*runtimev1.RunnablePolicySet, error) {
+			return s.fallbackPolicyLoader.GetAll(ctx)
+		},
+	)
+}
+
 func (s *Store) ListPolicyIDs(ctx context.Context, params storage.ListPolicyIDsParams) ([]string, error) {
 	return withCircuitBreaker(
 		s,
 		func() ([]string, error) { return s.baseStore.ListPolicyIDs(ctx, params) },
 		func() ([]string, error) { return s.fallbackStore.ListPolicyIDs(ctx, params) },
+	)
+}
+
+func (s *Store) InspectPolicies(ctx context.Context, params storage.ListPolicyIDsParams) (map[string]*responsev1.InspectPoliciesResponse_Result, error) {
+	return withCircuitBreaker(
+		s,
+		func() (map[string]*responsev1.InspectPoliciesResponse_Result, error) {
+			return s.baseStore.InspectPolicies(ctx, params)
+		},
+		func() (map[string]*responsev1.InspectPoliciesResponse_Result, error) {
+			return s.fallbackStore.InspectPolicies(ctx, params)
+		},
 	)
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 //go:build e2e
@@ -26,7 +26,7 @@ const (
 
 var conf = Config{}
 
-//nolint:gomnd
+//nolint:mnd
 func init() {
 	srcRoot, err := findSourceRoot()
 	if err != nil {
@@ -130,7 +130,7 @@ func (c Ctx) Namespace() string {
 }
 
 func (c Ctx) GRPCAddr() string {
-	return fmt.Sprintf("dns:///%s:%d", c.CerbosHost(), GRPCPort)
+	return fmt.Sprintf("%s:%d", c.CerbosHost(), GRPCPort)
 }
 
 func (c Ctx) HTTPAddr() string {

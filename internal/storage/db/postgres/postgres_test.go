@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package postgres_test
@@ -38,7 +38,7 @@ func TestPostgres(t *testing.T) {
 
 	createSchema(t, fmt.Sprintf("postgres://postgres:postgres@localhost:%d?sslmode=disable", port))
 
-	ctx, cancelFunc := context.WithCancel(context.Background())
+	ctx, cancelFunc := context.WithCancel(t.Context())
 	defer cancelFunc()
 
 	connURL := fmt.Sprintf("postgres://cerbos_user:changeme@localhost:%d/postgres?sslmode=disable&search_path=cerbos", port)
@@ -63,7 +63,7 @@ func TestPostgres(t *testing.T) {
 func createSchema(t *testing.T, url string) {
 	t.Helper()
 
-	ctx, cancelFunc := context.WithCancel(context.Background())
+	ctx, cancelFunc := context.WithCancel(t.Context())
 	defer cancelFunc()
 
 	conn, err := pgx.Connect(ctx, url)

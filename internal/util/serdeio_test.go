@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package util_test
@@ -44,7 +44,6 @@ func TestReadJSONOrYAML(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.input, func(t *testing.T) {
 			f, err := os.Open(filepath.Join("testdata", tc.input))
 			require.NoError(t, err)

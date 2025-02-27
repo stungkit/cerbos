@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package internal
@@ -14,7 +14,7 @@ import (
 
 func ConcatWithSepFunc(dialect string) func(string, ...any) exp.Expression {
 	switch dialect {
-	case "mysql", "mysql8", "sqlserver":
+	case "mysql", "mysql8":
 		return mysqlConcatWithSep
 	default:
 		return ansiConcatWithSep
@@ -31,7 +31,7 @@ func mysqlConcatWithSep(sep string, args ...any) exp.Expression {
 	return goqu.Func("CONCAT_WS", a...)
 }
 
-//nolint:gomnd
+//nolint:mnd
 func ansiConcatWithSep(sep string, args ...any) exp.Expression {
 	n := len(args)
 	switch n {

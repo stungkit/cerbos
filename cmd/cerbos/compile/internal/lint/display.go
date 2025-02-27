@@ -1,9 +1,11 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package lint
 
 import (
+	"strings"
+
 	compileerrors "github.com/cerbos/cerbos/cmd/cerbos/compile/errors"
 	"github.com/cerbos/cerbos/cmd/cerbos/compile/internal/flagset"
 	"github.com/cerbos/cerbos/internal/outputcolor"
@@ -40,10 +42,14 @@ func displayList(p *printer.Printer, errs *index.BuildError) error {
 		p.Println()
 	}
 
-	if len(errs.MissingScopes) > 0 {
+	if len(errs.MissingScopeDetails) > 0 {
 		p.Println(colored.Header("Missing scopes"))
-		for _, mi := range errs.MissingScopes {
-			p.Printf("scoped policy %s is required but no definition found\n", colored.PolicyKey(mi))
+		for _, missingScopes := range errs.MissingScopeDetails {
+			p.Printf(
+				"scoped policy %s is not found but is required by descendant policies %s\n",
+				colored.ErrorMsg(missingScopes.MissingPolicy),
+				colored.PolicyKey(strings.Join(missingScopes.Descendants, ", ")),
+			)
 		}
 		p.Println()
 	}
@@ -80,6 +86,22 @@ func displayList(p *printer.Printer, errs *index.BuildError) error {
 			} else {
 				p.Printf("%s %s\n", colored.FileName(lf.GetFile()), colored.ErrorMsg(d.GetMessage()))
 			}
+		}
+		p.Println()
+	}
+
+	if len(errs.ScopePermissionsConflicts) > 0 {
+		p.Println(colored.Header("Scope permission conflicts"))
+		for _, spc := range errs.ScopePermissionsConflicts {
+			p.Printf("policies sharing scope %s have conflicting scopePermissions\n", spc.Scope)
+		}
+		p.Println()
+	}
+
+	if len(errs.ScopePermissionsOrdering) > 0 {
+		p.Println(colored.Header("Scope permission ordering errors"))
+		for _, spo := range errs.ScopePermissionsOrdering {
+			p.Printf("scope %s: REQUIRE_PARENTAL_CONSENT can only be used at leaf nodes\n", spo.Scope)
 		}
 		p.Println()
 	}

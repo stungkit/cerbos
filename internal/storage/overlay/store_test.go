@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package overlay
@@ -13,13 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	responsev1 "github.com/cerbos/cerbos/api/genpb/cerbos/response/v1"
 	runtimev1 "github.com/cerbos/cerbos/api/genpb/cerbos/runtime/v1"
 	"github.com/cerbos/cerbos/internal/config"
 	"github.com/cerbos/cerbos/internal/namer"
 	"github.com/cerbos/cerbos/internal/schema"
 	"github.com/cerbos/cerbos/internal/storage"
 	"github.com/cerbos/cerbos/internal/storage/blob"
-
 	"github.com/cerbos/cerbos/internal/storage/disk"
 )
 
@@ -30,7 +30,7 @@ var (
 )
 
 func TestDriverInstantiation(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	bucketName := "test"
 	t.Setenv("AWS_ACCESS_KEY_ID", "minioadmin")
@@ -58,7 +58,7 @@ func TestDriverInstantiation(t *testing.T) {
 
 	// policy loader successfully created
 	t.Run("policy loader creation successful", func(t *testing.T) {
-		ctx, cancelFunc := context.WithCancel(context.Background())
+		ctx, cancelFunc := context.WithCancel(t.Context())
 		defer cancelFunc()
 
 		store, err := storage.New(ctx)
@@ -104,7 +104,7 @@ func TestFailover(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("failover not triggered when consecutive failures within threshold", func(t *testing.T) {
-		ctx, cancelFunc := context.WithCancel(context.Background())
+		ctx, cancelFunc := context.WithCancel(t.Context())
 		defer cancelFunc()
 
 		nFailures := fallbackErrorThreshold - 1
@@ -135,7 +135,7 @@ func TestFailover(t *testing.T) {
 	})
 
 	t.Run("failover triggered when consecutive failures exceed threshold", func(t *testing.T) {
-		ctx, cancelFunc := context.WithCancel(context.Background())
+		ctx, cancelFunc := context.WithCancel(t.Context())
 		defer cancelFunc()
 
 		nFailures := fallbackErrorThreshold
@@ -167,7 +167,7 @@ func TestFailover(t *testing.T) {
 	})
 
 	t.Run("reload only called on baseStore if not implemented on fallbackStore", func(t *testing.T) {
-		ctx, cancelFunc := context.WithCancel(context.Background())
+		ctx, cancelFunc := context.WithCancel(t.Context())
 		defer cancelFunc()
 
 		baseStore := new(MockReloadable)
@@ -191,7 +191,7 @@ func TestFailover(t *testing.T) {
 	})
 
 	t.Run("reload only called on fallbackStore if not implemented on baseStore", func(t *testing.T) {
-		ctx, cancelFunc := context.WithCancel(context.Background())
+		ctx, cancelFunc := context.WithCancel(t.Context())
 		defer cancelFunc()
 
 		baseStore := new(MockBinaryStore)
@@ -214,7 +214,7 @@ func TestFailover(t *testing.T) {
 	})
 
 	t.Run("reload not called if not implemented on either store", func(t *testing.T) {
-		ctx, cancelFunc := context.WithCancel(context.Background())
+		ctx, cancelFunc := context.WithCancel(t.Context())
 		defer cancelFunc()
 
 		baseStore := new(MockBinaryStore)
@@ -244,6 +244,16 @@ func (m *MockPolicyLoader) GetFirstMatch(ctx context.Context, candidates []namer
 	return args.Get(0).(*runtimev1.RunnablePolicySet), args.Error(1)
 }
 
+func (m *MockPolicyLoader) GetAll(ctx context.Context) ([]*runtimev1.RunnablePolicySet, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]*runtimev1.RunnablePolicySet), args.Error(1)
+}
+
+func (m *MockPolicyLoader) GetAllMatching(ctx context.Context, modIDs []namer.ModuleID) ([]*runtimev1.RunnablePolicySet, error) {
+	args := m.Called(ctx, modIDs)
+	return args.Get(0).([]*runtimev1.RunnablePolicySet), args.Error(1)
+}
+
 type MockStore struct {
 	mock.Mock
 }
@@ -251,6 +261,14 @@ type MockStore struct {
 func (ms *MockStore) Driver() string {
 	args := ms.Called()
 	return args.String(0)
+}
+
+func (ms *MockStore) InspectPolicies(ctx context.Context, _ storage.ListPolicyIDsParams) (map[string]*responsev1.InspectPoliciesResponse_Result, error) {
+	args := ms.Called(ctx)
+	if res := args.Get(0); res == nil {
+		return nil, args.Error(0)
+	}
+	return args.Get(0).(map[string]*responsev1.InspectPoliciesResponse_Result), args.Error(0)
 }
 
 func (ms *MockStore) ListPolicyIDs(ctx context.Context, _ storage.ListPolicyIDsParams) ([]string, error) {
@@ -285,6 +303,16 @@ type MockBinaryStore struct {
 func (m *MockBinaryStore) GetFirstMatch(ctx context.Context, candidates []namer.ModuleID) (*runtimev1.RunnablePolicySet, error) {
 	args := m.Called(ctx, candidates)
 	return args.Get(0).(*runtimev1.RunnablePolicySet), args.Error(1)
+}
+
+func (m *MockBinaryStore) GetAll(ctx context.Context) ([]*runtimev1.RunnablePolicySet, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]*runtimev1.RunnablePolicySet), args.Error(1)
+}
+
+func (m *MockBinaryStore) GetAllMatching(ctx context.Context, modIDs []namer.ModuleID) ([]*runtimev1.RunnablePolicySet, error) {
+	args := m.Called(ctx, modIDs)
+	return args.Get(0).([]*runtimev1.RunnablePolicySet), args.Error(1)
 }
 
 type MockReloadable struct {

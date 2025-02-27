@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package server
@@ -23,7 +23,7 @@ import (
 	grpc_logging "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	grpc_validator "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
 	grpc_recovery "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
-	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	grpcruntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	reuseport "github.com/kavu/go_reuseport"
 	"github.com/sourcegraph/conc/pool"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -38,6 +38,8 @@ import (
 
 	svcv1 "github.com/cerbos/cerbos/api/genpb/cerbos/svc/v1"
 	"github.com/cerbos/cerbos/internal/audit"
+	"github.com/cerbos/cerbos/internal/engine/policyloader"
+	"github.com/cerbos/cerbos/internal/engine/ruletable"
 	"github.com/cerbos/cerbos/internal/telemetry"
 	"github.com/cerbos/cerbos/internal/validator"
 
@@ -55,6 +57,8 @@ import (
 	_ "github.com/cerbos/cerbos/internal/audit/file"
 	// Import to register the kafka audit log backend.
 	_ "github.com/cerbos/cerbos/internal/audit/kafka"
+	// Import to register the hub audit log backend.
+	_ "github.com/cerbos/cerbos/internal/audit/hub"
 	"github.com/cerbos/cerbos/internal/auxdata"
 	"github.com/cerbos/cerbos/internal/compile"
 	"github.com/cerbos/cerbos/internal/engine"
@@ -67,16 +71,14 @@ import (
 	_ "github.com/cerbos/cerbos/internal/storage/blob"
 	"github.com/cerbos/cerbos/internal/storage/overlay"
 
-	// Import bundle to register the storage driver.
-	_ "github.com/cerbos/cerbos/internal/storage/bundle"
+	// Import hub to register the storage driver.
+	_ "github.com/cerbos/cerbos/internal/storage/hub"
 	// Import mysql to register the storage driver.
 	_ "github.com/cerbos/cerbos/internal/storage/db/mysql"
 	// Import postgres to register the storage driver.
 	_ "github.com/cerbos/cerbos/internal/storage/db/postgres"
 	// Import sqlite3 to register the storage driver.
 	_ "github.com/cerbos/cerbos/internal/storage/db/sqlite3"
-	// Import sqlserver to register the storage driver.
-	_ "github.com/cerbos/cerbos/internal/storage/db/sqlserver"
 	// Import disk to register the storage driver.
 	_ "github.com/cerbos/cerbos/internal/storage/disk"
 	// Import git to register the storage driver.
@@ -131,7 +133,7 @@ func Start(ctx context.Context) error {
 		return fmt.Errorf("failed to create schema manager: %w", err)
 	}
 
-	var policyLoader engine.PolicyLoader
+	var policyLoader policyloader.PolicyLoader
 	switch st := store.(type) {
 	// Overlay needs to take precedence over BinaryStore in this type switch,
 	// as our overlay store implements BinaryStore also
@@ -144,6 +146,7 @@ func Start(ctx context.Context) error {
 		policyLoader = pl
 	case storage.BinaryStore:
 		policyLoader = st
+
 	case storage.SourceStore:
 		// create compile manager
 		compileMgr, err := compile.NewManager(ctx, st, schemaMgr)
@@ -155,9 +158,16 @@ func Start(ctx context.Context) error {
 		return ErrInvalidStore
 	}
 
+	rt := ruletable.NewRuleTable(policyLoader)
+
+	if ss, ok := policyLoader.(storage.Subscribable); ok {
+		ss.Subscribe(rt)
+	}
+
 	// create engine
 	eng, err := engine.New(ctx, engine.Components{
 		PolicyLoader:      policyLoader,
+		RuleTable:         rt,
 		SchemaMgr:         schemaMgr,
 		AuditLog:          auditLog,
 		MetadataExtractor: mdExtractor,
@@ -464,25 +474,12 @@ func (s *Server) mkGRPCServer(log *zap.Logger, auditLog audit.Log) (*grpc.Server
 func (s *Server) startHTTPServer(ctx context.Context, l net.Listener, grpcSrv *grpc.Server) (*http.Server, error) {
 	log := zap.S().Named("http")
 
-	grpcConn, err := s.mkGRPCConn(ctx)
+	grpcConn, err := s.mkGRPCConn()
 	if err != nil {
 		return nil, err
 	}
 
-	gwmux := runtime.NewServeMux(
-		runtime.WithForwardResponseOption(customHTTPResponseCode),
-		runtime.WithIncomingHeaderMatcher(incomingHeaderMatcher),
-		runtime.WithMarshalerOption("application/json+pretty", &runtime.JSONPb{
-			MarshalOptions:   protojson.MarshalOptions{Indent: "  "},
-			UnmarshalOptions: protojson.UnmarshalOptions{DiscardUnknown: false},
-		}),
-		runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONPb{
-			UnmarshalOptions: protojson.UnmarshalOptions{DiscardUnknown: false},
-		}),
-		runtime.WithMetadata(setPeerMetadata),
-		runtime.WithRoutingErrorHandler(handleRoutingError),
-		runtime.WithHealthEndpointAt(healthpb.NewHealthClient(grpcConn), healthEndpoint),
-	)
+	gwmux := mkGatewayMux(grpcConn)
 
 	if err := svcv1.RegisterCerbosServiceHandler(ctx, gwmux, grpcConn); err != nil {
 		log.Errorw("Failed to register Cerbos HTTP service", "error", err)
@@ -551,6 +548,23 @@ func (s *Server) startHTTPServer(ctx context.Context, l net.Listener, grpcSrv *g
 	return h, nil
 }
 
+func mkGatewayMux(grpcConn grpc.ClientConnInterface) *grpcruntime.ServeMux {
+	return grpcruntime.NewServeMux(
+		grpcruntime.WithForwardResponseOption(customHTTPResponseCode),
+		grpcruntime.WithIncomingHeaderMatcher(incomingHeaderMatcher),
+		grpcruntime.WithMarshalerOption("application/json+pretty", &grpcruntime.JSONPb{
+			MarshalOptions:   protojson.MarshalOptions{Indent: "  "},
+			UnmarshalOptions: protojson.UnmarshalOptions{DiscardUnknown: false},
+		}),
+		grpcruntime.WithMarshalerOption(grpcruntime.MIMEWildcard, &grpcruntime.JSONPb{
+			UnmarshalOptions: protojson.UnmarshalOptions{DiscardUnknown: false},
+		}),
+		grpcruntime.WithMetadata(setPeerMetadata),
+		grpcruntime.WithRoutingErrorHandler(handleRoutingError),
+		grpcruntime.WithHealthEndpointAt(healthpb.NewHealthClient(grpcConn), healthEndpoint),
+	)
+}
+
 func defaultGRPCDialOpts() []grpc.DialOption {
 	// see https://github.com/grpc/grpc/blob/master/doc/connection-backoff.md
 	return []grpc.DialOption{
@@ -560,7 +574,7 @@ func defaultGRPCDialOpts() []grpc.DialOption {
 	}
 }
 
-func (s *Server) mkGRPCConn(ctx context.Context) (*grpc.ClientConn, error) {
+func (s *Server) mkGRPCConn() (*grpc.ClientConn, error) {
 	opts := defaultGRPCDialOpts()
 
 	if s.tlsConfig != nil {
@@ -571,7 +585,7 @@ func (s *Server) mkGRPCConn(ctx context.Context) (*grpc.ClientConn, error) {
 		opts = append(opts, grpc.WithTransportCredentials(local.NewCredentials()))
 	}
 
-	grpcConn, err := grpc.DialContext(ctx, s.conf.GRPCListenAddr, opts...)
+	grpcConn, err := util.EagerGRPCClient(s.conf.GRPCListenAddr, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial gRPC: %w", err)
 	}
@@ -612,7 +626,7 @@ func (s *Server) parseAndOpen(listenAddr string) (net.Listener, error) {
 	return reuseport.NewReusablePortListener(network, addr)
 }
 
-//nolint:gomnd
+//nolint:mnd
 func toUDSFileMode(modeStr string) os.FileMode {
 	m, err := strconv.ParseInt(modeStr, 0, 32)
 	if err != nil || m <= 0 {
@@ -653,5 +667,8 @@ func incomingHeaderMatcher(key string) (string, bool) {
 }
 
 func setPeerMetadata(_ context.Context, req *http.Request) metadata.MD {
-	return metadata.Pairs(audit.HTTPRemoteAddrKey, req.RemoteAddr)
+	return metadata.Pairs(
+		audit.SetByGRPCGatewayKey, audit.SetByGRPCGatewayVal,
+		audit.HTTPRemoteAddrKey, req.RemoteAddr,
+	)
 }

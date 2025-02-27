@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package schema
@@ -24,21 +24,19 @@ cerbosctl get schemas principal.json`
 type Cmd struct {
 	flagset.Format
 
-	SchemaIds []string `arg:"" name:"id" optional:"" help:"list of schema ids to retrieve"` //nolint:revive
+	SchemaIDs []string `arg:"" name:"id" optional:"" help:"list of schema ids to retrieve"` //nolint:revive
 }
 
 func (c *Cmd) Run(k *kong.Kong, ctx *client.Context) error {
-	if len(c.SchemaIds) == 0 {
-		err := schema.List(k, ctx.AdminClient, &c.Format)
-		if err != nil {
+	if len(c.SchemaIDs) == 0 {
+		if err := schema.List(k, ctx.AdminClient, &c.Format); err != nil {
 			return fmt.Errorf("failed to list schemas: %w", err)
 		}
 
 		return nil
 	}
 
-	err := schema.Get(k, ctx.AdminClient, &c.Format, c.SchemaIds...)
-	if err != nil {
+	if err := schema.Get(k, ctx.AdminClient, &c.Format, c.SchemaIDs...); err != nil {
 		return fmt.Errorf("failed to get schemas: %w", err)
 	}
 

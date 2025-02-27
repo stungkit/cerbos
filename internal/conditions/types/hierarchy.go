@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package types
@@ -242,7 +242,7 @@ func (h Hierarchy) Equal(other ref.Val) ref.Val {
 	return types.Bool(true)
 }
 
-// Receive implements traits.Reciever.Receive.
+// Receive implements traits.Receiver.Receive.
 func (h Hierarchy) Receive(function, _ string, args []ref.Val) ref.Val {
 	if len(args) == 1 {
 		if f, found := hierarchyOneArgOverloads[function]; found {

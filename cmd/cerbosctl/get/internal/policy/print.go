@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package policy
@@ -70,11 +70,14 @@ func printPolicyYAML(w io.Writer, policies []policy.Wrapper) error {
 
 func getHeaders(kind policy.Kind) []string {
 	switch kind {
-	case policy.DerivedRolesKind, policy.ExportVariablesKind:
+	case policy.DerivedRolesKind, policy.ExportConstantsKind, policy.ExportVariablesKind:
 		return []string{"POLICY ID", "NAME"}
 
 	case policy.PrincipalKind, policy.ResourceKind:
 		return []string{"POLICY ID", "NAME", "VERSION", "SCOPE"}
+
+	case policy.RolePolicyKind:
+		return []string{"POLICY ID", "NAME", "SCOPE"}
 	}
 
 	panic(fmt.Errorf("unknown policy kind %d", kind))

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package file
@@ -53,7 +53,6 @@ func NewLog(conf *Conf, decisionFilter audit.DecisionLogEntryFilter) (*Log, erro
 	outputSyncers := make([]zapcore.WriteSyncer, len(outputPaths))
 
 	for i, path := range outputPaths {
-		path := path
 		switch path {
 		case "stdout":
 			outputSyncers[i] = zapcore.AddSync(syncErrIgnorer{WriteSyncer: os.Stdout})

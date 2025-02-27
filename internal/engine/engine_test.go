@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package engine
@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -27,6 +28,7 @@ import (
 	"github.com/cerbos/cerbos/internal/audit"
 	"github.com/cerbos/cerbos/internal/audit/local"
 	"github.com/cerbos/cerbos/internal/compile"
+	"github.com/cerbos/cerbos/internal/engine/ruletable"
 	"github.com/cerbos/cerbos/internal/engine/tracer"
 	"github.com/cerbos/cerbos/internal/printer"
 	"github.com/cerbos/cerbos/internal/schema"
@@ -46,13 +48,12 @@ func TestCheck(t *testing.T) {
 	testCases := test.LoadTestCases(t, "engine")
 
 	for _, tcase := range testCases {
-		tcase := tcase
 		t.Run(tcase.Name, func(t *testing.T) {
 			tc := readTestCase(t, tcase.Input)
 			mockAuditLog.clear()
 
 			traceCollector := tracer.NewCollector()
-			haveOutputs, err := eng.Check(context.Background(), tc.Inputs, WithTraceSink(traceCollector))
+			haveOutputs, err := eng.Check(t.Context(), tc.Inputs, WithTraceSink(traceCollector))
 
 			if tc.WantError {
 				require.Error(t, err)
@@ -61,6 +62,17 @@ func TestCheck(t *testing.T) {
 			}
 
 			for i, have := range haveOutputs {
+				// TODO(saml) I can't, for the life of me, figure out out to order this via a transformation
+				// function in `cmp.Diff` below, so this'll have to do for now
+				slices.SortStableFunc(have.Outputs, func(a, b *enginev1.OutputEntry) int {
+					if a.Src < b.Src {
+						return -1
+					} else if a.Src > b.Src {
+						return 1
+					}
+					return 0
+				})
+
 				require.Empty(t, cmp.Diff(tc.WantOutputs[i],
 					have,
 					protocmp.Transform(),
@@ -69,14 +81,58 @@ func TestCheck(t *testing.T) {
 			}
 
 			haveDecisionLogs := mockAuditLog.getDecisionLogs()
+
 			require.Empty(t, cmp.Diff(tc.WantDecisionLogs,
 				haveDecisionLogs,
 				protocmp.Transform(),
+				protocmp.IgnoreEmptyMessages(),
 				protocmp.SortRepeatedFields(&enginev1.CheckOutput{}, "effective_derived_roles"),
+				protocmp.SortRepeatedFields(&enginev1.Principal{}, "roles"),
 				protocmp.IgnoreFields(&auditv1.DecisionLogEntry{}, "call_id", "timestamp", "peer"),
 			))
 		})
 	}
+
+	t.Run("deterministic_now", func(t *testing.T) {
+		roles := []string{"user"}
+		actions := []string{"a", "b", "c"}
+
+		inputs := []*enginev1.CheckInput{
+			{
+				Principal: &enginev1.Principal{Id: "1", Roles: roles},
+				Resource:  &enginev1.Resource{Kind: "output_now", Id: "1"},
+				Actions:   actions,
+			},
+			{
+				Principal: &enginev1.Principal{Id: "2", Roles: roles},
+				Resource:  &enginev1.Resource{Kind: "output_now", Id: "1"},
+				Actions:   actions,
+			},
+			{
+				Principal: &enginev1.Principal{Id: "1", Roles: roles},
+				Resource:  &enginev1.Resource{Kind: "output_now", Id: "2"},
+				Actions:   actions,
+			},
+			{
+				Principal: &enginev1.Principal{Id: "2", Roles: roles},
+				Resource:  &enginev1.Resource{Kind: "output_now", Id: "2"},
+				Actions:   actions,
+			},
+		}
+
+		outputs, err := eng.Check(t.Context(), inputs)
+		require.NoError(t, err)
+		require.Len(t, outputs, len(inputs))
+
+		uniqueNows := make(map[string]struct{})
+		for _, output := range outputs {
+			require.Len(t, output.Outputs, 3)
+			for _, entry := range output.Outputs {
+				uniqueNows[entry.Val.GetStringValue()] = struct{}{}
+			}
+		}
+		require.Len(t, uniqueNows, 1)
+	})
 }
 
 func TestCheckWithLenientScopeSearch(t *testing.T) {
@@ -88,13 +144,12 @@ func TestCheckWithLenientScopeSearch(t *testing.T) {
 	testCases = append(testCases, test.LoadTestCases(t, "engine_lenient_scope_search")...)
 
 	for _, tcase := range testCases {
-		tcase := tcase
 		t.Run(tcase.Name, func(t *testing.T) {
 			tc := readTestCase(t, tcase.Input)
 			mockAuditLog.clear()
 
 			traceCollector := tracer.NewCollector()
-			haveOutputs, err := eng.Check(context.Background(), tc.Inputs, WithTraceSink(traceCollector))
+			haveOutputs, err := eng.Check(t.Context(), tc.Inputs, WithTraceSink(traceCollector))
 
 			if tc.WantError {
 				require.Error(t, err)
@@ -103,10 +158,24 @@ func TestCheckWithLenientScopeSearch(t *testing.T) {
 			}
 
 			for i, have := range haveOutputs {
+				// TODO(saml) I can't, for the life of me, figure out out to order this via a transformation
+				// function in `cmp.Diff` below, so this'll have to do for now
+				slices.SortStableFunc(have.Outputs, func(a, b *enginev1.OutputEntry) int {
+					if a.Src < b.Src {
+						return -1
+					} else if a.Src > b.Src {
+						return 1
+					}
+					return 0
+				})
+
 				require.Empty(t, cmp.Diff(tc.WantOutputs[i],
 					have,
 					protocmp.Transform(),
 					protocmp.SortRepeatedFields(&enginev1.CheckOutput{}, "effective_derived_roles"),
+					protocmp.FilterField(&enginev1.CheckOutput{}, "outputs", cmpopts.SortSlices(func(x, y *enginev1.OutputEntry) bool {
+						return x.Src < y.Src
+					})),
 				))
 			}
 
@@ -114,7 +183,9 @@ func TestCheckWithLenientScopeSearch(t *testing.T) {
 			require.Empty(t, cmp.Diff(tc.WantDecisionLogs,
 				haveDecisionLogs,
 				protocmp.Transform(),
+				protocmp.IgnoreEmptyMessages(),
 				protocmp.SortRepeatedFields(&enginev1.CheckOutput{}, "effective_derived_roles"),
+				protocmp.SortRepeatedFields(&enginev1.Principal{}, "roles"),
 				protocmp.IgnoreFields(&auditv1.DecisionLogEntry{}, "call_id", "timestamp", "peer"),
 			))
 		})
@@ -123,7 +194,6 @@ func TestCheckWithLenientScopeSearch(t *testing.T) {
 
 func TestSchemaValidation(t *testing.T) {
 	for _, enforcement := range []string{"warn", "reject"} {
-		enforcement := enforcement
 		t.Run(fmt.Sprintf("enforcement=%s", enforcement), func(t *testing.T) {
 			p := param{schemaEnforcement: schema.Enforcement(enforcement)}
 
@@ -133,11 +203,10 @@ func TestSchemaValidation(t *testing.T) {
 			testCases := test.LoadTestCases(t, filepath.Join("engine_schema_enforcement", enforcement))
 
 			for _, tcase := range testCases {
-				tcase := tcase
 				t.Run(tcase.Name, func(t *testing.T) {
 					tc := readTestCase(t, tcase.Input)
 
-					haveOutputs, err := eng.Check(context.Background(), tc.Inputs, WithTraceSink(newTestTraceSink(t)))
+					haveOutputs, err := eng.Check(t.Context(), tc.Inputs, WithTraceSink(newTestTraceSink(t)))
 
 					if tc.WantError {
 						require.Error(t, err)
@@ -150,6 +219,9 @@ func TestSchemaValidation(t *testing.T) {
 							have,
 							protocmp.Transform(),
 							protocmp.SortRepeatedFields(&enginev1.CheckOutput{}, "effective_derived_roles"),
+							protocmp.FilterField(&enginev1.CheckOutput{}, "outputs", cmpopts.SortSlices(func(x, y *enginev1.OutputEntry) bool {
+								return x.Src < y.Src
+							})),
 							protocmp.SortRepeated(cmpValidationError),
 						))
 					}
@@ -194,7 +266,6 @@ func runBenchmarks(b *testing.B, eng *Engine, testCases []test.Case) {
 	b.Helper()
 
 	for _, tcase := range testCases {
-		tcase := tcase
 		b.Run(tcase.Name, func(b *testing.B) {
 			tc := readTestCase(b, tcase.Input)
 
@@ -202,7 +273,7 @@ func runBenchmarks(b *testing.B, eng *Engine, testCases []test.Case) {
 			b.ReportAllocs()
 
 			for i := 0; i < b.N; i++ {
-				have, err := eng.Check(context.Background(), tc.Inputs)
+				have, err := eng.Check(b.Context(), tc.Inputs)
 				if tc.WantError {
 					if err == nil {
 						b.Errorf("Expected error but got none")
@@ -231,7 +302,7 @@ func mkEngine(tb testing.TB, p param) (*Engine, context.CancelFunc) {
 	}
 	dir := test.PathToDir(tb, p.subDir)
 
-	ctx, cancelFunc := context.WithCancel(context.Background())
+	ctx, cancelFunc := context.WithCancel(tb.Context())
 
 	store, err := disk.NewStore(ctx, &disk.Conf{Directory: dir})
 	require.NoError(tb, err)
@@ -265,6 +336,7 @@ func mkEngine(tb testing.TB, p param) (*Engine, context.CancelFunc) {
 
 	eng := NewFromConf(ctx, engineConf, Components{
 		PolicyLoader:      compiler,
+		RuleTable:         ruletable.NewRuleTable(compiler),
 		SchemaMgr:         schemaMgr,
 		AuditLog:          auditLog,
 		MetadataExtractor: audit.NewMetadataExtractorFromConf(&audit.Conf{}),
@@ -307,23 +379,18 @@ func TestQueryPlan(t *testing.T) {
 							Kind:          tt.Resource.Kind,
 							Attr:          tt.Resource.Attr,
 							PolicyVersion: tt.Resource.PolicyVersion,
+							Scope:         tt.Resource.Scope,
 						},
 						IncludeMeta: true,
 						AuxData:     auxData,
 					}
-					nowFnCallsCounter := 0
-					nowFn := func() time.Time {
-						nowFnCallsCounter++
-						return timestamp
-					}
-					response, err := eng.PlanResources(context.Background(), request, WithNowFunc(nowFn))
+					response, err := eng.PlanResources(t.Context(), request, WithNowFunc(func() time.Time { return timestamp }))
 					if tt.WantErr {
 						is.Error(err)
 					} else {
 						is.NoError(err)
 						is.NotNil(response)
 						is.Empty(cmp.Diff(tt.Want, response.Filter, protocmp.Transform()), "AST: %s\n%s\n", response.FilterDebug, protojson.Format(response.Filter))
-						is.Equal(1, nowFnCallsCounter, "time function should be called once")
 					}
 				})
 			}

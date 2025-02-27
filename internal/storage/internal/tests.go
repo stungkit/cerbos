@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 //go:build tests
@@ -7,7 +7,6 @@
 package internal
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -27,38 +26,31 @@ func TestSuiteReloadable(store storage.Store, initFn, addFn, deleteFn MutateStor
 		expectedLen := 0
 		if initFn != nil {
 			expectedLen = 1
-			err := initFn()
-			require.NoError(t, err)
-
-			err = r.Reload(context.Background())
-			require.NoError(t, err)
+			require.NoError(t, initFn())
+			require.NoError(t, r.Reload(t.Context()))
 		}
 
-		policies, err := store.ListPolicyIDs(context.Background(), storage.ListPolicyIDsParams{})
+		policies, err := store.ListPolicyIDs(t.Context(), storage.ListPolicyIDsParams{})
 		require.NoError(t, err)
 		require.Len(t, policies, expectedLen)
 
-		err = addFn()
-		require.NoError(t, err)
+		require.NoError(t, addFn())
 
-		policies, err = store.ListPolicyIDs(context.Background(), storage.ListPolicyIDsParams{})
+		policies, err = store.ListPolicyIDs(t.Context(), storage.ListPolicyIDsParams{})
 		require.NoError(t, err)
 		require.Len(t, policies, expectedLen)
 
-		err = r.Reload(context.Background())
-		require.NoError(t, err)
+		require.NoError(t, r.Reload(t.Context()))
 
-		policies, err = store.ListPolicyIDs(context.Background(), storage.ListPolicyIDsParams{})
+		policies, err = store.ListPolicyIDs(t.Context(), storage.ListPolicyIDsParams{})
 		require.NoError(t, err)
 		require.Greater(t, len(policies), expectedLen)
 
-		err = deleteFn()
-		require.NoError(t, err)
+		require.NoError(t, deleteFn())
 
-		err = r.Reload(context.Background())
-		require.NoError(t, err)
+		require.NoError(t, r.Reload(t.Context()))
 
-		policies, err = store.ListPolicyIDs(context.Background(), storage.ListPolicyIDsParams{})
+		policies, err = store.ListPolicyIDs(t.Context(), storage.ListPolicyIDsParams{})
 		require.NoError(t, err)
 		require.Len(t, policies, expectedLen)
 	}

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package local
@@ -19,11 +19,11 @@ const (
 	defaultFlushInterval   = 30 * time.Second
 	defaultMaxBatchSize    = 16
 	defaultGCInterval      = 15 * time.Minute
-	defaultRetentionPeriod = (7 * 24) * time.Hour //nolint:gomnd
+	defaultRetentionPeriod = (7 * 24) * time.Hour //nolint:mnd
 
 	minFlushInterval   = 1 * time.Second
 	minRetentionPeriod = 1 * time.Hour
-	maxRetentionPeriod = (30 * 24) * time.Hour //nolint:gomnd
+	maxRetentionPeriod = (30 * 24) * time.Hour //nolint:mnd
 )
 
 var (

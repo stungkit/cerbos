@@ -1,10 +1,9 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package audit_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -18,7 +17,7 @@ func TestNopLog(t *testing.T) {
 
 	t.Run("writeAccessLogEntry", func(t *testing.T) {
 		recordMakerCalled := false
-		err := log.WriteAccessLogEntry(context.Background(), func() (*auditv1.AccessLogEntry, error) {
+		err := log.WriteAccessLogEntry(t.Context(), func() (*auditv1.AccessLogEntry, error) {
 			recordMakerCalled = true
 			return &auditv1.AccessLogEntry{}, nil
 		})
@@ -28,7 +27,7 @@ func TestNopLog(t *testing.T) {
 
 	t.Run("writeDecisionLogEntry", func(t *testing.T) {
 		recordMakerCalled := false
-		err := log.WriteDecisionLogEntry(context.Background(), func() (*auditv1.DecisionLogEntry, error) {
+		err := log.WriteDecisionLogEntry(t.Context(), func() (*auditv1.DecisionLogEntry, error) {
 			recordMakerCalled = true
 			return &auditv1.DecisionLogEntry{}, nil
 		})

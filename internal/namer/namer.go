@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package namer
@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"iter"
 	"regexp"
 	"strconv"
 	"strings"
@@ -24,9 +25,11 @@ var (
 
 const (
 	DerivedRolesPrefix      = fqnPrefix + "derived_roles"
+	ExportConstantsPrefix   = fqnPrefix + "export_constants"
 	ExportVariablesPrefix   = fqnPrefix + "export_variables"
 	PrincipalPoliciesPrefix = fqnPrefix + "principal"
 	ResourcePoliciesPrefix  = fqnPrefix + "resource"
+	RolePoliciesPrefix      = fqnPrefix + "role"
 
 	DefaultVersion = "default"
 	fqnPrefix      = "cerbos."
@@ -70,6 +73,10 @@ func (m *ModuleID) HexStr() string {
 	return fmt.Sprintf("%X", m.hash)
 }
 
+func (m ModuleID) RawValue() uint64 {
+	return m.hash
+}
+
 // GenModuleID generates a short ID for the module.
 func GenModuleID(p *policyv1.Policy) ModuleID {
 	return GenModuleIDFromFQN(FQN(p))
@@ -87,8 +94,12 @@ func FQN(p *policyv1.Policy) string {
 		return ResourcePolicyFQN(pt.ResourcePolicy.Resource, pt.ResourcePolicy.Version, pt.ResourcePolicy.Scope)
 	case *policyv1.Policy_PrincipalPolicy:
 		return PrincipalPolicyFQN(pt.PrincipalPolicy.Principal, pt.PrincipalPolicy.Version, pt.PrincipalPolicy.Scope)
+	case *policyv1.Policy_RolePolicy:
+		return RolePolicyFQN(pt.RolePolicy.GetRole(), pt.RolePolicy.Scope)
 	case *policyv1.Policy_DerivedRoles:
 		return DerivedRolesFQN(pt.DerivedRoles.Name)
+	case *policyv1.Policy_ExportConstants:
+		return ExportConstantsFQN(pt.ExportConstants.Name)
 	case *policyv1.Policy_ExportVariables:
 		return ExportVariablesFQN(pt.ExportVariables.Name)
 	default:
@@ -113,8 +124,14 @@ func FQNTree(p *policyv1.Policy) []string {
 	case *policyv1.Policy_PrincipalPolicy:
 		fqn = PrincipalPolicyFQN(pt.PrincipalPolicy.Principal, pt.PrincipalPolicy.Version, "")
 		scope = pt.PrincipalPolicy.Scope
+	case *policyv1.Policy_RolePolicy:
+		// role policies don't functionally have ancestors
+		fqn = RolePolicyFQN(pt.RolePolicy.GetRole(), pt.RolePolicy.Scope)
+		return []string{fqn}
 	case *policyv1.Policy_DerivedRoles:
 		fqn = DerivedRolesFQN(pt.DerivedRoles.Name)
+	case *policyv1.Policy_ExportConstants:
+		fqn = ExportConstantsFQN(pt.ExportConstants.Name)
 	case *policyv1.Policy_ExportVariables:
 		fqn = ExportVariablesFQN(pt.ExportVariables.Name)
 	default:
@@ -143,6 +160,23 @@ func buildFQNTree[T any](fqn, scope string, elementFn func(string) T) []T {
 	return fqnTree
 }
 
+func ScopeParents(scope string) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for i := len(scope) - 1; i >= 0; i-- {
+			if scope[i] == '.' || i == 0 {
+				if !yield(scope[:i]) {
+					return
+				}
+			}
+		}
+	}
+}
+
+func ScopeFromFQN(fqn string) string {
+	_, scope, _ := strings.Cut(fqn, "/")
+	return scope
+}
+
 // PolicyKey returns a human-friendly identifier that can be used to refer to the policy in logs and other outputs.
 func PolicyKey(p *policyv1.Policy) string {
 	return PolicyKeyFromFQN(FQN(p))
@@ -158,6 +192,10 @@ func FQNFromPolicyKey(s string) string {
 	return fqnPrefix + s
 }
 
+func SanitizedResource(resource string) string {
+	return sanitize(resource)
+}
+
 // ResourcePolicyFQN returns the fully-qualified name for the resource policy with given resource, version and scope.
 func ResourcePolicyFQN(resource, version, scope string) string {
 	fqn := fmt.Sprintf("%s.%s.v%s", ResourcePoliciesPrefix, sanitize(resource), sanitize(version))
@@ -169,7 +207,7 @@ func ResourcePolicyModuleID(resource, version, scope string) ModuleID {
 	return GenModuleIDFromFQN(ResourcePolicyFQN(resource, version, scope))
 }
 
-// ScopedResourcePolicyModuleIDs returns a list of module IDs for each scope segment if `strict` is false.
+// ScopedResourcePolicyModuleIDs returns a list of module IDs for each scope segment if `genTree` is true.
 // For example, if the scope is `a.b.c`, the list will contain the module IDs for scopes `a.b.c`, `a.b`, `a` and `""` in that order.
 func ScopedResourcePolicyModuleIDs(resource, version, scope string, genTree bool) []ModuleID {
 	if !genTree || scope == "" {
@@ -188,6 +226,17 @@ func PrincipalPolicyFQN(principal, version, scope string) string {
 // PrincipalPolicyModuleID returns the module ID for the principal policy with given principal and version.
 func PrincipalPolicyModuleID(principal, version, scope string) ModuleID {
 	return GenModuleIDFromFQN(PrincipalPolicyFQN(principal, version, scope))
+}
+
+// RolePolicyFQN returns the fully-qualified module name for the role policies with the given scope.
+func RolePolicyFQN(role, scope string) string {
+	fqn := fmt.Sprintf("%s.%s", RolePoliciesPrefix, sanitize(role))
+	return withScope(fqn, scope)
+}
+
+// RolePolicyModuleID returns the module ID for the role policies with the given scope.
+func RolePolicyModuleID(role, scope string) ModuleID {
+	return GenModuleIDFromFQN(RolePolicyFQN(role, scope))
 }
 
 // ScopedPrincipalPolicyModuleIDs returns a list of module IDs for each scope segment if `strict` is false.
@@ -210,6 +259,16 @@ func DerivedRolesModuleID(roleSetName string) ModuleID {
 	return GenModuleIDFromFQN(DerivedRolesFQN(roleSetName))
 }
 
+// ExportConstantsFQN returns the fully-qualified module name for the given exported constant definitions.
+func ExportConstantsFQN(constantsName string) string {
+	return fmt.Sprintf("%s.%s", ExportConstantsPrefix, sanitize(constantsName))
+}
+
+// ExportConstantsModuleID returns the module ID for the given exported constant definitions.
+func ExportConstantsModuleID(constantsName string) ModuleID {
+	return GenModuleIDFromFQN(ExportConstantsFQN(constantsName))
+}
+
 // ExportVariablesFQN returns the fully-qualified module name for the given exported variable definitions.
 func ExportVariablesFQN(variablesName string) string {
 	return fmt.Sprintf("%s.%s", ExportVariablesPrefix, sanitize(variablesName))
@@ -220,9 +279,9 @@ func ExportVariablesModuleID(variablesName string) ModuleID {
 	return GenModuleIDFromFQN(ExportVariablesFQN(variablesName))
 }
 
-// SimpleName extracts the simple name from a derived roles or exported variables FQN.
+// SimpleName extracts the simple name from a derived roles, exported constants, or exported variables FQN.
 func SimpleName(fqn string) string {
-	return strings.TrimPrefix(strings.TrimPrefix(fqn, ExportVariablesPrefix+"."), DerivedRolesPrefix+".")
+	return strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(fqn, ExportVariablesPrefix+"."), ExportConstantsPrefix+"."), DerivedRolesPrefix+".")
 }
 
 func withScope(fqn, scope string) string {
@@ -272,6 +331,13 @@ func RuleFQN(rpsMeta any, scope, ruleName string) string {
 		policyFqn = ResourcePolicyFQN(m.Resource, m.Version, scope)
 	case *runtimev1.RunnablePrincipalPolicySet_Metadata:
 		policyFqn = PrincipalPolicyFQN(m.Principal, m.Version, scope)
+	case *runtimev1.RuleTableMetadata:
+		switch t := m.Name.(type) {
+		case *runtimev1.RuleTableMetadata_Resource:
+			policyFqn = ResourcePolicyFQN(t.Resource, m.Version, scope)
+		case *runtimev1.RuleTableMetadata_Role:
+			policyFqn = RolePolicyFQN(t.Role, scope)
+		}
 	default:
 		panic(fmt.Errorf("unknown runnable policy set meta type %T", m))
 	}
@@ -291,12 +357,16 @@ func (pc PolicyCoords) FQN() string {
 	switch prefix {
 	case DerivedRolesPrefix:
 		return DerivedRolesFQN(pc.Name)
+	case ExportConstantsPrefix:
+		return ExportConstantsFQN(pc.Name)
 	case ExportVariablesPrefix:
 		return ExportVariablesFQN(pc.Name)
 	case PrincipalPoliciesPrefix:
 		return PrincipalPolicyFQN(pc.Name, pc.Version, pc.Scope)
 	case ResourcePoliciesPrefix:
 		return ResourcePolicyFQN(pc.Name, pc.Version, pc.Scope)
+	case RolePoliciesPrefix:
+		return RolePolicyFQN(pc.Name, pc.Scope)
 	default:
 		panic(fmt.Errorf("unknown kind %q", pc.Kind))
 	}

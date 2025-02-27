@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package policy_test
@@ -16,6 +16,7 @@ import (
 	policyv1 "github.com/cerbos/cerbos/api/genpb/cerbos/policy/v1"
 	"github.com/cerbos/cerbos/internal/policy"
 	"github.com/cerbos/cerbos/internal/test"
+	"github.com/cerbos/cerbos/internal/util"
 	"github.com/cerbos/cerbos/internal/validator"
 )
 
@@ -35,6 +36,10 @@ func TestReadPolicy(t *testing.T) {
 		{
 			input: "derived_roles_01",
 			want:  test.GenDerivedRoles(test.NoMod()),
+		},
+		{
+			input: "export_constants_01",
+			want:  test.GenExportConstants(test.NoMod()),
 		},
 		{
 			input: "export_variables_01",
@@ -70,7 +75,7 @@ func TestReadPolicy(t *testing.T) {
 }
 
 func TestHash(t *testing.T) {
-	inputs := []string{"resource_policy_01", "principal_policy_01", "derived_roles_01", "export_variables_01"}
+	inputs := []string{"resource_policy_01", "principal_policy_01", "derived_roles_01", "export_constants_01", "export_variables_01"}
 	fs := os.DirFS(test.PathToDir(t, "policy_formats"))
 
 	for _, input := range inputs {
@@ -88,14 +93,40 @@ func TestHash(t *testing.T) {
 }
 
 func TestReadFileWithMultiplePolicies(t *testing.T) {
-	input := filepath.Join(test.PathToDir(t, "policy_formats"), "multiple_policies.yaml")
-	f, err := os.Open(input)
-	require.NoError(t, err)
+	testCases := []struct {
+		file    string
+		wantErr bool
+	}{
+		{
+			file:    "multiple_policies.yaml",
+			wantErr: true,
+		},
+		{
+			file:    "single_policy_trailing_spaces.yaml",
+			wantErr: false,
+		},
+		{
+			file:    "single_policy_others_commented.yaml",
+			wantErr: false,
+		},
+	}
 
-	defer f.Close()
+	for _, tc := range testCases {
+		t.Run(tc.file, func(t *testing.T) {
+			input := filepath.Join(test.PathToDir(t, "policy_formats"), tc.file)
+			f, err := os.Open(input)
+			require.NoError(t, err)
 
-	_, err = policy.ReadPolicy(f)
-	require.Error(t, err)
+			t.Cleanup(func() { _ = f.Close() })
+
+			_, _, err = policy.ReadPolicyWithSourceContextFromReader(f)
+			if tc.wantErr {
+				require.ErrorIs(t, err, util.ErrMultipleYAMLDocs)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestValidate(t *testing.T) {

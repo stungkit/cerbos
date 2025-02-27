@@ -1,5 +1,6 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
+
 package metrics
 
 import (
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"go.opentelemetry.io/contrib/instrumentation/host"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -128,7 +128,7 @@ var (
 			"cerbos_dev_engine_check_batch_size",
 			metric.WithDescription("Batch size distribution of check requests"),
 			metric.WithUnit(UnitDimensionless),
-			metric.WithExplicitBucketBoundaries(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 25, 30, 35, 40, 45, 50), //nolint:gomnd
+			metric.WithExplicitBucketBoundaries(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 25, 30, 35, 40, 45, 50), //nolint:mnd
 		)
 	})
 
@@ -175,15 +175,18 @@ var (
 			metric.WithDescription("Number of errors encountered while syncing updates from the remote store"),
 		)
 	})
+
+	StoreLastSuccessfulRefresh = once(func() (metric.Int64Gauge, error) {
+		return Meter().Int64Gauge(
+			"cerbos_dev_store_last_successful_refresh",
+			metric.WithDescription("The last time the store was successfully refreshed manually or automatically"),
+		)
+	})
 )
 
 func NewHandler() (http.Handler, error) {
 	if err := runtime.Start(runtime.WithMinimumReadMemStatsInterval(time.Second)); err != nil {
 		return nil, fmt.Errorf("failed to start runtime metrics collector: %w", err)
-	}
-
-	if err := host.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start host metrics collector: %w", err)
 	}
 
 	return promhttp.Handler(), nil
@@ -241,4 +244,12 @@ func Inc[T counter](ctx context.Context, m T, attr ...attribute.KeyValue) {
 
 func Add[T counter](ctx context.Context, m T, v int64, attr ...attribute.KeyValue) {
 	m.Add(ctx, v, metric.WithAttributes(attr...))
+}
+
+type gauge interface {
+	Record(context.Context, int64, ...metric.RecordOption)
+}
+
+func Record[T gauge](ctx context.Context, m T, v int64, attr ...attribute.KeyValue) {
+	m.Record(ctx, v, metric.WithAttributes(attr...))
 }

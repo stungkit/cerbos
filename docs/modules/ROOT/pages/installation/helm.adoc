@@ -137,12 +137,13 @@ cerbos:
         updatePollInterval: 60s
         # Credentials used to login to the remote GitHub repo. We are using an environment variable mounted from the secret we created earlier.
         https:
-          username: ${GITHUB_TOKEN} <2>
-          password: "" <3>
+          username: "cerbos" <2>
+          password: "${GITHUB_TOKEN}" <3>
 ----
 <1> Create an environment variable from the secret we created
-<2> Use the environment variable containing the PAT as the username to login to GitHub
-<3> Password should be empty when using a PAT to authenticate to GitHub
+<2> Username should be set to a string value (can be any value if using GitHub)
+<3> Use the environment variable containing the PAT as the password to login to GitHub
+
 
 * Deploy Cerbos using the Helm chart
 +
@@ -189,4 +190,68 @@ cerbos:
 [source,sh,subs="attributes"]
 ----
 helm install cerbos cerbos/cerbos --version={app-version} --values=pv-values.yaml
+----
+
+== Deploy a PDP connected to Cerbos Hub
+
+include::ROOT:partial$try-cerbos-hub.adoc[]
+
+
+* Create a new Kubernetes secret to hold the Cerbos Hub credentials
++
+[source,sh]
+----
+kubectl create secret generic cerbos-hub-credentials \
+   --from-literal=CERBOS_HUB_CLIENT_ID=YOUR_CLIENT_ID \ <1>
+   --from-literal=CERBOS_HUB_CLIENT_SECRET=YOUR_CLIENT_SECRET \ <2>
+   --from-literal=CERBOS_HUB_WORKSPACE_SECRET=YOUR_WORKSPACE_SECRET <3>
+----
+<1> Client ID from the Cerbos Hub credential
+<2> Client secret from the Cerbos Hub credential
+<3> Cerbos Hub workspace secret
+
+
+* Create a new values file named `hub-values.yaml` with the following contents:
++
+[source,yaml,linenums]
+----
+cerbos:
+  config:
+    # Configure the Hub storage driver
+    storage:
+      driver: "hub"
+      # Configure deployment label. Alternatively, add `CERBOS_HUB_BUNDLE=<YOUR_LABEL>` to the secret you created above.
+      hub:
+        remote:
+          bundleLabel: "YOUR_LABEL" <1>
+
+    # Configure the Hub audit backend
+    audit:
+      enabled: true <2>
+      backend: "hub"
+      hub:
+        storagePath: /audit_logs
+
+# Create environment variables from the secret.
+envFrom:
+  - secretRef:
+      name: cerbos-hub-credentials
+
+# Mount volume for locally buffering the audit logs. A persistent volume is recommended for production use cases.
+volumes:
+  - name: cerbos-audit-logs
+    emptyDir: {}
+
+volumeMounts:
+  - name: cerbos-audit-logs
+    mountPath: /audit_logs
+----
+<1> The label to watch for bundle updates. See xref:cerbos-hub:ROOT:deployment-labels.adoc[deployment labels documentation] for details.
+<2> Enables audit log collection. See xref:cerbos-hub:ROOT:audit-log-collection.adoc[Hub audit log collection documentation] for information about masking sensitive fields and other advanced settings.
+
+* Deploy Cerbos using the Helm chart
++
+[source,sh,subs="attributes"]
+----
+helm install cerbos cerbos/cerbos --version={app-version} --values=hub-values.yaml
 ----

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package compile
@@ -20,6 +20,7 @@ import (
 
 var (
 	errAmbiguousDerivedRole   = errors.New("ambiguous derived role")
+	errConstantRedefined      = errors.New("constant redefined")
 	errCyclicalVariables      = errors.New("cyclical variable definitions")
 	errImportNotFound         = errors.New("import not found")
 	errInvalidCompilationUnit = errors.New("invalid compilation unit")
@@ -27,6 +28,7 @@ var (
 	errInvalidSchema          = errors.New("invalid schema")
 	errMissingDefinition      = errors.New("missing policy definition")
 	errScriptsUnsupported     = errors.New("scripts in conditions are no longer supported")
+	errUndefinedConstant      = errors.New("undefined constant")
 	errUndefinedVariable      = errors.New("undefined variable")
 	errUnexpectedErr          = errors.New("unexpected error")
 	errUnknownDerivedRole     = errors.New("unknown derived role")
@@ -165,12 +167,7 @@ func newCELCompileError(expr string, issues *cel.Issues) *CELCompileError {
 }
 
 func (cce *CELCompileError) Error() string {
-	errList := make([]string, len(cce.issues.Errors()))
-	for i, ce := range cce.issues.Errors() {
-		errList[i] = ce.Message
-	}
-
-	return fmt.Sprintf("failed to compile `%s` [%s]", cce.expr, strings.Join(errList, ", "))
+	return "invalid expression"
 }
 
 func (cce *CELCompileError) Unwrap() error {

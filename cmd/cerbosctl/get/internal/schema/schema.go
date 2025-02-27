@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package schema
@@ -13,7 +13,7 @@ import (
 	"github.com/cerbos/cerbos-sdk-go/cerbos"
 	schemav1 "github.com/cerbos/cerbos/api/genpb/cerbos/schema/v1"
 	"github.com/cerbos/cerbos/cmd/cerbosctl/get/internal/flagset"
-	"github.com/cerbos/cerbos/cmd/cerbosctl/get/internal/printer"
+	"github.com/cerbos/cerbos/cmd/cerbosctl/internal/printer"
 )
 
 func List(k *kong.Kong, c *cerbos.GRPCAdminClient, format *flagset.Format) error {

@@ -1,10 +1,12 @@
 ---
+version: 2
+
 snapshot:
-  name_template: '{{ incminor .Version }}-prerelease'
+  version_template: "{{ incminor .Version }}-prerelease"
 
 git:
   ignore_tags:
-    - 'api/genpb/*'
+    - "api/genpb/*"
 
 builds:
   - main: ./cmd/cerbos
@@ -21,7 +23,7 @@ builds:
     goarm:
       - "6"
       - "7"
-    mod_timestamp: '{{ .CommitTimestamp }}'
+    mod_timestamp: "{{ .CommitTimestamp }}"
     flags:
       - -trimpath
     ldflags:
@@ -35,6 +37,26 @@ builds:
             - BINARY_ARCH={{ .Arch }}
             - BINARY_VERSION={{ .Version }}
             - BINARY_PATH={{ .Path }}
+
+  - main: ./cmd/cerbos
+    binary: cerbos
+    id: "cerbos-aws"
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    goarm:
+      - "6"
+      - "7"
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/cerbos/cerbos/internal/util.Version={{.Version}}-aws -X github.com/cerbos/cerbos/internal/util.Commit={{.FullCommit}} -X github.com/cerbos/cerbos/internal/util.BuildDate={{.Date}} -X github.com/cerbos/cerbos/internal/telemetry.WriteKey={{.Env.TELEMETRY_WRITE_KEY}} -X github.com/cerbos/cerbos/internal/telemetry.DataPlaneURL={{.Env.TELEMETRY_URL}} -X github.com/cerbos/cerbos/internal/integrations.AWSProductCode={{.Env.AWS_PRODUCT_CODE}}
 
   - main: ./cmd/cerbosctl
     binary: cerbosctl
@@ -50,7 +72,7 @@ builds:
     goarm:
       - "6"
       - "7"
-    mod_timestamp: '{{ .CommitTimestamp }}'
+    mod_timestamp: "{{ .CommitTimestamp }}"
     flags:
       - -trimpath
     ldflags:
@@ -64,6 +86,9 @@ builds:
             - BINARY_ARCH={{ .Arch }}
             - BINARY_VERSION={{ .Version }}
             - BINARY_PATH={{ .Path }}
+
+sboms:
+  - artifacts: archive
 
 universal_binaries:
   - id: "cerbos"
@@ -117,6 +142,7 @@ signs:
       - --rekor-url
       - https://rekor.sigstore.dev/
       - "--bundle=${artifact}.bundle"
+      - "--output-signature=${signature}"
       - "${artifact}"
     artifacts: all
 
@@ -209,6 +235,40 @@ dockers:
       - "--label=org.opencontainers.image.source={{.GitURL}}"
       - "--platform=linux/arm64"
 
+  - id: cerbos-aws-amd64
+    dockerfile: Dockerfile.cerbos
+    image_templates:
+      - "{{ .Env.AWS_CONTAINER_REPO }}:{{ .Version }}-amd64"
+    ids:
+      - cerbos-aws
+    goarch: amd64
+    use: buildx
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.name={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source={{.GitURL}}"
+      - "--platform=linux/amd64"
+
+  - id: cerbos-aws-arm64
+    dockerfile: Dockerfile.cerbos
+    image_templates:
+      - "{{ .Env.AWS_CONTAINER_REPO }}:{{ .Version }}-arm64"
+    ids:
+      - cerbos-aws
+    goarch: arm64
+    use: buildx
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.name={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source={{.GitURL}}"
+      - "--platform=linux/arm64"
+
 docker_manifests:
   - name_template: "ghcr.io/cerbos/cerbos:{{ .Version }}"
     image_templates:
@@ -270,6 +330,11 @@ docker_manifests:
       - "docker.io/cerbos/cerbosctl:dev-amd64"
       - "docker.io/cerbos/cerbosctl:dev-arm64"
 
+  - name_template: "{{ .Env.AWS_CONTAINER_REPO }}:{{ .Version }}"
+    image_templates:
+      - "{{ .Env.AWS_CONTAINER_REPO }}:{{ .Version }}-amd64"
+      - "{{ .Env.AWS_CONTAINER_REPO }}:{{ .Version }}-arm64"
+
 docker_signs:
   - id: sign-images
     cmd: cosign
@@ -293,15 +358,17 @@ brews:
         base:
           branch: main
 
-    folder: Formula
+    directory: Formula
     ids:
       - cerbos
     homepage: "https://cerbos.dev"
     description: "Cerbos is the open core, language-agnostic, scalable authorization solution that makes user permissions and authorization simple to implement and manage by writing context-aware access control policies for your application resources."
     license: "Apache-2.0"
 checksum:
-  name_template: 'checksums.txt'
+  name_template: "checksums.txt"
 release:
+  extra_files:
+    - glob: "**/*.bundle"
   header: |-
     Cerbos {{ .Version }}
     ---------------------

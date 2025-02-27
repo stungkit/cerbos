@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package blob
@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -14,63 +16,74 @@ import (
 	"github.com/stretchr/testify/require"
 	"gocloud.dev/blob"
 
+	"github.com/cerbos/cerbos/internal/namer"
 	"github.com/cerbos/cerbos/internal/schema"
 	"github.com/cerbos/cerbos/internal/storage"
-	"github.com/cerbos/cerbos/internal/storage/index"
 	"github.com/cerbos/cerbos/internal/storage/internal"
 	"github.com/cerbos/cerbos/internal/test"
 )
 
-var keysInStore []string
+var (
+	keysInStore []string
+	_           bucketCloner = &mockCloner{}
+)
 
-type clonerFunc func(ctx context.Context) (*CloneResult, error)
-
-func (r clonerFunc) Clone(ctx context.Context) (*CloneResult, error) { return r(ctx) }
+type (
+	cloneFn func(ctx context.Context) (*CloneResult, error)
+	cleanFn func() error
+)
 
 func TestNewStore(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
-	t.Run("partial failure", func(t *testing.T) {
-		dir := t.TempDir()
-		conf := &Conf{WorkDir: dir}
-		conf.SetDefaults()
-		must := require.New(t)
-		_, err := NewStore(ctx, conf, clonerFunc(func(_ context.Context) (*CloneResult, error) {
-			return &CloneResult{failuresCount: 1}, nil
-		}))
-		must.ErrorIs(err, ErrPartialFailureToDownloadOnInit)
-	})
 	t.Run("clone failure makes ctor fail", func(t *testing.T) {
-		dir := t.TempDir()
-		conf := &Conf{WorkDir: dir}
+		workDir := t.TempDir()
+		conf := &Conf{WorkDir: workDir}
 		conf.SetDefaults()
 		must := require.New(t)
-		_, err := NewStore(ctx, conf, clonerFunc(func(_ context.Context) (*CloneResult, error) {
-			return nil, errors.New("any error")
-		}))
+		_, err := NewStore(
+			ctx,
+			conf,
+			newBlobFS(workDir),
+			mkMockCloner("", "", nil, func(_ context.Context) (*CloneResult, error) {
+				return nil, errors.New("any error")
+			}),
+			symlinkerFunc(func(_, _ string) error {
+				return errors.New("any error")
+			}),
+		)
 		must.Error(err)
 	})
 	t.Run("Minio bucket test", func(t *testing.T) {
 		if testing.Short() {
 			t.Skip()
 		}
-		dir := t.TempDir()
-		conf := &Conf{WorkDir: dir}
+
+		workDir := t.TempDir()
+		conf := &Conf{WorkDir: workDir}
 		conf.SetDefaults()
 
-		must := require.New(t)
-
-		bucketName := "test"
+		cacheDir := cacheDir(conf.Bucket, conf.WorkDir)
 		endpoint := StartMinio(ctx, t, bucketName)
 		t.Setenv("AWS_ACCESS_KEY_ID", minioUsername)
 		t.Setenv("AWS_SECRET_ACCESS_KEY", minioPassword)
 		conf.Bucket = MinioBucketURL(bucketName, endpoint)
 
+		must := require.New(t)
+
 		bucket, err := newBucket(ctx, conf)
 		must.NoError(err)
-		cloner, err := NewCloner(bucket, storeFS{dir})
+
+		cloner, err := NewCloner(bucket, cacheDir)
 		must.NoError(err)
-		_, err = NewStore(ctx, conf, cloner)
+
+		_, err = NewStore(
+			ctx,
+			conf,
+			newBlobFS(workDir),
+			cloner,
+			symlinkerFunc(func(_, _ string) error { return nil }),
+		)
 		must.NoError(err)
 	})
 }
@@ -84,6 +97,87 @@ func TestReloadable(t *testing.T) {
 	internal.TestSuiteReloadable(store, mkInitFn(t, bucket), mkAddFn(t, bucket), mkDeleteFn(t, bucket))(t)
 }
 
+func TestStore_updateIndex(t *testing.T) {
+	ctx := t.Context()
+
+	must := require.New(t)
+	workDir := t.TempDir()
+	cacheDir := cacheDir("mock", workDir)
+	must.NoError(createOrValidateDir(cacheDir))
+
+	conf := &Conf{WorkDir: workDir}
+	conf.SetDefaults()
+
+	policyDir := test.PathToDir(t, "store")
+	policyFile := filepath.Join("resource_policies", "policy_02.yaml")
+	schemaFile := filepath.Join(schema.Directory, "principal.json")
+	noOfClonerCalls := 0
+	store, err := NewStore(
+		ctx,
+		conf,
+		newBlobFS(workDir),
+		mkMockCloner(cacheDir, policyDir, nil, func(_ context.Context) (*CloneResult, error) {
+			noOfClonerCalls++
+
+			if noOfClonerCalls == 2 { // first call to updateIndex after init
+				return &CloneResult{
+					all: map[string][]string{
+						"policy": {policyFile},
+						"schema": {schemaFile},
+					},
+					addedOrUpdated: []info{
+						{
+							etag: "policy",
+							file: policyFile,
+						},
+						{
+							etag: "schema",
+							file: schemaFile,
+						},
+					},
+				}, nil
+			} else if noOfClonerCalls == 3 { // second call to updateIndex after init
+				return &CloneResult{
+					deleted: []info{
+						{
+							etag: "policy",
+							file: policyFile,
+						},
+						{
+							etag: "schema",
+							file: schemaFile,
+						},
+					},
+				}, nil
+			}
+
+			return &CloneResult{}, nil
+		}),
+		mkSymlinker(cacheDir, workDir),
+	)
+	must.NoError(err)
+
+	mustBeNotified := storage.TestSubscription(store)
+	must.NoError(store.updateIndex(ctx))
+	mustBeNotified(t, 1*time.Second,
+		storage.Event{
+			Kind:     storage.EventAddOrUpdatePolicy,
+			PolicyID: namer.GenModuleIDFromFQN("cerbos.resource.leave_request.vstaging"),
+		},
+		storage.NewSchemaEvent(storage.EventAddOrUpdateSchema, "principal.json"),
+	)
+
+	mustBeNotified = storage.TestSubscription(store)
+	must.NoError(store.updateIndex(ctx))
+	mustBeNotified(t, 1*time.Second,
+		storage.NewSchemaEvent(storage.EventDeleteSchema, "principal.json"),
+		storage.Event{
+			Kind:     storage.EventDeleteOrDisablePolicy,
+			PolicyID: namer.GenModuleIDFromFQN("cerbos.resource.leave_request.vstaging"),
+		},
+	)
+}
+
 func mkInitFn(t *testing.T, bucket *blob.Bucket) internal.MutateStoreFn {
 	t.Helper()
 
@@ -93,7 +187,7 @@ func mkInitFn(t *testing.T, bucket *blob.Bucket) internal.MutateStoreFn {
 
 	return func() error {
 		var err error
-		keysInStore, err = uploadDirToBucket(t, context.Background(), testdataDir, bucket)
+		keysInStore, err = uploadDirToBucket(t, t.Context(), testdataDir, bucket)
 		if err != nil {
 			return fmt.Errorf("failed to add to the store: %w", err)
 		}
@@ -106,7 +200,7 @@ func mkDeleteFn(t *testing.T, bucket *blob.Bucket) internal.MutateStoreFn {
 
 	return func() error {
 		for _, key := range keysInStore {
-			err := bucket.Delete(context.Background(), key)
+			err := bucket.Delete(t.Context(), key)
 			if err != nil {
 				return fmt.Errorf("failed to delete from the store: %w", err)
 			}
@@ -121,7 +215,7 @@ func mkAddFn(t *testing.T, bucket *blob.Bucket) internal.MutateStoreFn {
 
 	return func() error {
 		var err error
-		keysInStore, err = uploadDirToBucket(t, context.Background(), test.PathToDir(t, "store"), bucket)
+		keysInStore, err = uploadDirToBucket(t, t.Context(), test.PathToDir(t, "store"), bucket)
 		if err != nil {
 			return fmt.Errorf("failed to add to the store: %w", err)
 		}
@@ -132,16 +226,27 @@ func mkAddFn(t *testing.T, bucket *blob.Bucket) internal.MutateStoreFn {
 func mkStore(t *testing.T, dir string) (*Store, *blob.Bucket) {
 	t.Helper()
 
-	endpoint := StartMinio(context.Background(), t, bucketName)
+	endpoint := StartMinio(t.Context(), t, bucketName)
 	conf := mkConf(t, dir, bucketName, endpoint)
-	bucket, err := newBucket(context.Background(), conf)
+	bucket, err := newBucket(t.Context(), conf)
 	require.NoError(t, err)
-	cloner, err := NewCloner(bucket, storeFS{dir})
+	cacheDir := cacheDir(conf.Bucket, conf.WorkDir)
+	cloner, err := NewCloner(bucket, cacheDir)
 	require.NoError(t, err)
-	store, err := NewStore(context.Background(), conf, cloner)
+
+	store, err := NewStore(t.Context(), conf, newBlobFS(dir), cloner, mkSymlinker(cacheDir, dir))
 	require.NoError(t, err)
 
 	return store, bucket
+}
+
+func mkSymlinker(cacheDir, workDir string) symlinker {
+	return symlinkerFunc(func(destination, source string) error {
+		src := filepath.Join(workDir, source)
+		dst := filepath.Join(cacheDir, destination)
+
+		return os.Symlink(dst, src)
+	})
 }
 
 func mkConf(t *testing.T, dir, bucketName, endpoint string) *Conf {
@@ -154,93 +259,58 @@ func mkConf(t *testing.T, dir, bucketName, endpoint string) *Conf {
 	return conf
 }
 
-type mockIndex struct {
-	index.Index
-	addOrUpdate func(index.Entry) (storage.Event, error)
-	delete      func(index.Entry) (storage.Event, error)
+func mkMockCloner(cacheDir, policyDir string, clean cleanFn, clone cloneFn) bucketCloner {
+	return &mockCloner{
+		cacheDir:  cacheDir,
+		cleanFn:   clean,
+		cloneFn:   clone,
+		policyDir: policyDir,
+	}
 }
 
-func (m *mockIndex) AddOrUpdate(e index.Entry) (storage.Event, error) {
-	return m.addOrUpdate(e)
+type mockCloner struct {
+	cacheDir  string
+	policyDir string
+	cleanFn   cleanFn
+	cloneFn   cloneFn
 }
 
-func (m *mockIndex) Delete(e index.Entry) (storage.Event, error) {
-	return m.delete(e)
+func (mc *mockCloner) Clean() error {
+	if mc.cleanFn != nil {
+		return mc.cleanFn()
+	}
+
+	return nil
 }
 
-func TestStore_updateIndex(t *testing.T) {
-	ctx := context.Background()
-
-	dir := t.TempDir()
-	conf := &Conf{WorkDir: dir}
-	conf.SetDefaults()
-
-	must := require.New(t)
-
-	policyDir := test.PathToDir(t, "store")
-	policyFile := filepath.Join("resource_policies", "policy_01.yaml")
-	schemaFile := filepath.Join(schema.Directory, "principal.json")
-	store, err := NewStore(ctx, conf, clonerFunc(func(_ context.Context) (*CloneResult, error) {
-		return &CloneResult{
-			updateOrAdd: []fileInfo{{file: policyFile, etag: []byte("policy")}, {file: schemaFile, etag: []byte("schema")}},
-			delete:      []string{policyFile, schemaFile},
-		}, nil
-	}))
-	must.NoError(err)
-	store.fsys = storeFS{dir: policyDir}
-
-	var addOrUpdateCalled bool
-	var deleteCalled bool
-	addOrUpdateEvent := storage.Event{
-		Kind: storage.EventAddOrUpdatePolicy,
-	}
-	deleteEvent := storage.Event{
-		Kind: storage.EventDeleteOrDisablePolicy,
-	}
-	store.idx = &mockIndex{
-		addOrUpdate: func(entry index.Entry) (storage.Event, error) {
-			addOrUpdateCalled = true
-			must.Equal(entry.File, policyFile)
-			return addOrUpdateEvent, nil
-		},
-		delete: func(entry index.Entry) (storage.Event, error) {
-			deleteCalled = true
-			must.Equal(entry.File, policyFile)
-			return deleteEvent, nil
-		},
+func (mc *mockCloner) Clone(ctx context.Context) (*CloneResult, error) {
+	cr, err := mc.cloneFn(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	mustBeNotified := storage.TestSubscription(store)
-	err = store.updateIndex(ctx)
-	must.NoError(err)
-	must.True(addOrUpdateCalled)
-	must.True(deleteCalled)
-	mustBeNotified(t, 1*time.Second,
-		addOrUpdateEvent,
-		deleteEvent,
-		storage.NewSchemaEvent(storage.EventAddOrUpdateSchema, "principal.json"),
-		storage.NewSchemaEvent(storage.EventDeleteSchema, "principal.json"),
-	)
-}
+	if mc.cacheDir != "" && mc.policyDir != "" {
+		for _, i := range cr.addedOrUpdated {
+			f, err := os.Open(filepath.Join(mc.policyDir, i.file))
+			if err != nil {
+				return nil, err
+			}
 
-func TestStore_AWSS3(t *testing.T) {
-	t.Skip("Skip test with real S3 bucket")
+			fBytes, err := io.ReadAll(f)
+			if err != nil {
+				return nil, err
+			}
 
-	ctx := context.Background()
-	dir := t.TempDir()
-	conf := &Conf{
-		Bucket:  "s3://test-dev.cerbos.dev?region=us-east-2",
-		Prefix:  "policies",
-		WorkDir: dir,
+			path := filepath.Join(mc.cacheDir, i.etag)
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return nil, err
+			}
+
+			if err := os.WriteFile(path, fBytes, 0o600); err != nil {
+				return nil, err
+			}
+		}
 	}
-	conf.SetDefaults()
 
-	must := require.New(t)
-
-	bucket, err := newBucket(ctx, conf)
-	must.NoError(err)
-	cloner, err := NewCloner(bucket, storeFS{dir})
-	must.NoError(err)
-	_, err = NewStore(ctx, conf, cloner)
-	must.NoError(err)
+	return cr, nil
 }

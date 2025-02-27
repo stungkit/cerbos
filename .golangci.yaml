@@ -1,12 +1,6 @@
 ---
 run:
   timeout: 300s
-  skip-dirs:
-    - "^api/"
-    - "^deploy/"
-    - "^docs/"
-    - "^hack/"
-    - "^internal/test/mocks/"
   build-tags:
     - tests
 
@@ -35,6 +29,14 @@ linters-settings:
       Copyright {{ YEAR-RANGE }} {{ COMPANY }}
       SPDX-License-Identifier: Apache-2.0
 
+  gomoddirectives:
+    replace-allow-list:
+      - github.com/goccy/go-yaml
+
+  gosec:
+    excludes:
+      - G115 # integer overflow conversion
+
   govet:
     enable-all: true
     disable:
@@ -42,7 +44,6 @@ linters-settings:
 
   nolintlint:
     allow-unused: true # false would be preferable, but it's flaky (https://github.com/golangci/golangci-lint/issues/3228)
-    allow-leading-space: false
     require-specific: true
 
   tagliatelle:
@@ -58,11 +59,11 @@ linters:
     - asciicheck
     - bidichk
     - bodyclose
+    - copyloopvar
     - dupl
     - durationcheck
     - errorlint
     - exhaustive
-    - exportloopref
     - forbidigo
     - forcetypeassert
     - goconst
@@ -71,13 +72,13 @@ linters:
     - gofumpt
     - goimports
     - goheader
-    - gomnd
     - gomoddirectives
     - gosec
     - govet
     - importas
     - makezero
     - misspell
+    - mnd
     - nakedret
     - nestif
     - nilerr
@@ -90,16 +91,23 @@ linters:
     - rowserrcheck
     - sqlclosecheck
     - tagliatelle
-    - tenv
     - thelper
     - tparallel
     - unconvert
     - unparam
+    - usetesting
     - wastedassign
     - whitespace
 
 issues:
   max-same-issues: 30
+
+  exclude-dirs:
+    - "^api/*"
+    - "^deploy/*"
+    - "^docs/*"
+    - "^hack/*"
+    - "^internal/test/mocks/*"
 
   exclude-rules:
     - path: _test\.go

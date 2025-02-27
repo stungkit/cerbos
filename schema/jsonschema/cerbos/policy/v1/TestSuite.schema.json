@@ -103,10 +103,49 @@
         }
       }
     },
+    "cerbos.policy.v1.TestFixtureGroup.Principals": {
+      "type": "object",
+      "required": [
+        "principals"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "principals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "cerbos.policy.v1.TestFixtureGroup.Resources": {
+      "type": "object",
+      "required": [
+        "resources"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
     "cerbos.policy.v1.TestOptions": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "defaultPolicyVersion": {
+          "type": "string"
+        },
         "globals": {
           "type": "object",
           "additionalProperties": {
@@ -161,8 +200,6 @@
     "cerbos.policy.v1.TestTable.Expectation": {
       "type": "object",
       "required": [
-        "principal",
-        "resource",
         "actions"
       ],
       "additionalProperties": false,
@@ -189,20 +226,48 @@
           }
         },
         "principal": {
-          "type": "string",
-          "minLength": 1
+          "type": "string"
+        },
+        "principalGroups": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "principals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
         },
         "resource": {
-          "type": "string",
-          "minLength": 1
+          "type": "string"
+        },
+        "resourceGroups": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
         }
       }
     },
     "cerbos.policy.v1.TestTable.Input": {
       "type": "object",
       "required": [
-        "principals",
-        "resources",
         "actions"
       ],
       "additionalProperties": false,
@@ -219,13 +284,28 @@
         "auxData": {
           "type": "string"
         },
+        "principalGroups": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
         "principals": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1
           },
-          "minItems": 1,
+          "uniqueItems": true
+        },
+        "resourceGroups": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
           "uniqueItems": true
         },
         "resources": {
@@ -234,7 +314,6 @@
             "type": "string",
             "minLength": 1
           },
-          "minItems": 1,
           "uniqueItems": true
         }
       }
@@ -297,10 +376,22 @@
     "options": {
       "$ref": "#/definitions/cerbos.policy.v1.TestOptions"
     },
+    "principalGroups": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/cerbos.policy.v1.TestFixtureGroup.Principals"
+      }
+    },
     "principals": {
       "type": "object",
       "additionalProperties": {
         "$ref": "#/definitions/cerbos.engine.v1.Principal"
+      }
+    },
+    "resourceGroups": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/cerbos.policy.v1.TestFixtureGroup.Resources"
       }
     },
     "resources": {

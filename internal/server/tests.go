@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package server
@@ -104,7 +104,7 @@ func (tr *TestRunner) RunGRPCTests(addr string, opts ...grpc.DialOption) func(*t
 	return func(t *testing.T) {
 		grpcConn := mkGRPCConn(t, addr, opts...)
 		require.Eventually(t,
-			grpcHealthCheckPasses(grpcConn, tr.HealthPollInterval),
+			grpcHealthCheckPasses(t, grpcConn, tr.HealthPollInterval),
 			tr.Timeout, tr.HealthPollInterval, "Server did not come up on time")
 
 		for _, tc := range tr.Cases {
@@ -118,7 +118,7 @@ func mkGRPCConn(t *testing.T, addr string, opts ...grpc.DialOption) *grpc.Client
 
 	dialOpts := append(defaultGRPCDialOpts(), opts...)
 
-	grpcConn, err := grpc.Dial(addr, dialOpts...)
+	grpcConn, err := util.EagerGRPCClient(addr, dialOpts...)
 	require.NoError(t, err, "Failed to dial gRPC server")
 
 	return grpcConn
@@ -130,7 +130,7 @@ func (tr *TestRunner) executeGRPCTestCase(grpcConn *grpc.ClientConn, tc *private
 		var have, want proto.Message
 		var err error
 
-		ctx, cancelFunc := context.WithTimeout(context.Background(), tr.Timeout)
+		ctx, cancelFunc := context.WithTimeout(t.Context(), tr.Timeout)
 		defer cancelFunc()
 
 		backoffConf := backoff.WithContext(
@@ -298,7 +298,7 @@ func (tr *TestRunner) executeHTTPTestCase(c *http.Client, hostAddr string, creds
 		reqBytes, err := protojson.Marshal(input)
 		require.NoError(t, err, "Failed to marshal request")
 
-		ctx, cancelFunc := context.WithTimeout(context.Background(), tr.Timeout)
+		ctx, cancelFunc := context.WithTimeout(t.Context(), tr.Timeout)
 		defer cancelFunc()
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, addr, bytes.NewReader(reqBytes))
@@ -363,12 +363,10 @@ func (tr *TestRunner) checkCORS(c *http.Client, hostAddr string) func(*testing.T
 	//nolint:thelper
 	return func(t *testing.T) {
 		for _, path := range paths {
-			path := path
 			t.Run(path, func(t *testing.T) {
 				for _, method := range methods {
-					method := method
 					t.Run(method, func(t *testing.T) {
-						ctx, cancelFunc := context.WithTimeout(context.Background(), tr.Timeout)
+						ctx, cancelFunc := context.WithTimeout(t.Context(), tr.Timeout)
 						defer cancelFunc()
 
 						req, err := http.NewRequestWithContext(ctx, http.MethodOptions, fmt.Sprintf("%s%s", hostAddr, path), http.NoBody)
@@ -443,15 +441,17 @@ func cmpOutputs(a, b *enginev1.OutputEntry) bool {
 	return a.Src < b.Src
 }
 
-func grpcHealthCheckPasses(grpcConn *grpc.ClientConn, reqTimeout time.Duration) func() bool {
+func grpcHealthCheckPasses(t *testing.T, grpcConn *grpc.ClientConn, reqTimeout time.Duration) func() bool {
+	t.Helper()
 	return func() bool {
 		client := healthpb.NewHealthClient(grpcConn)
 
-		ctx, cancelFunc := context.WithTimeout(context.Background(), reqTimeout)
+		ctx, cancelFunc := context.WithTimeout(t.Context(), reqTimeout)
 		defer cancelFunc()
 
 		resp, err := client.Check(ctx, &healthpb.HealthCheckRequest{})
 		if err != nil {
+			t.Logf("gRPC health check failed: %v", err)
 			return false
 		}
 

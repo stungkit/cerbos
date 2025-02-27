@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 //go:build integration
@@ -79,6 +79,7 @@ func TestProduceWithTLS(t *testing.T) {
 		}, nil
 	})
 	require.NoError(t, err)
+	require.NoError(t, log.Close())
 
 	// validate we see this entries in kafka
 	records, err := fetchKafkaTopic(t, uri, defaultIntegrationTopic, true)
@@ -118,6 +119,7 @@ func TestSyncProduce(t *testing.T) {
 		}, nil
 	})
 	require.NoError(t, err)
+	require.NoError(t, log.Close())
 
 	// validate we see this entries in kafka
 	records, err := fetchKafkaTopic(t, uri, defaultIntegrationTopic, false)
@@ -156,6 +158,7 @@ func TestCompression(t *testing.T) {
 			}, nil
 		})
 		require.NoError(t, err)
+		require.NoError(t, log.Close())
 	}
 
 	// validate we see these entries in kafka
@@ -196,6 +199,7 @@ func TestAsyncProduce(t *testing.T) {
 		}, nil
 	})
 	require.NoError(t, err)
+	require.NoError(t, log.Close())
 
 	// validate we see this entries in kafka, eventually
 	require.Eventually(t, func() bool {

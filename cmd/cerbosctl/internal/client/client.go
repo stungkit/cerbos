@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package client
@@ -25,7 +25,7 @@ func GetAdminClient(globals *flagset.Globals) (*cerbos.GRPCAdminClient, error) {
 
 	opts := globals.ToClientOpts()
 
-	ac, err := cerbos.NewAdminClientWithCredentials(globals.Server, globals.Username, globals.Password, opts...)
+	ac, err := cerbos.NewAdminClientWithCredentials("passthrough:///"+globals.Server, globals.Username, globals.Password, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create the admin client: %w", err)
 	}
@@ -36,7 +36,7 @@ func GetAdminClient(globals *flagset.Globals) (*cerbos.GRPCAdminClient, error) {
 func GetClient(globals *flagset.Globals) (*cerbos.GRPCClient, error) {
 	opts := globals.ToClientOpts()
 
-	c, err := cerbos.New(globals.Server, opts...)
+	c, err := cerbos.New("passthrough:///"+globals.Server, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create the client: %w", err)
 	}

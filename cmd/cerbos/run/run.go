@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package run
@@ -20,6 +20,7 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/go-cmd/cmd"
+	gomaxecs "github.com/rdforte/gomaxecs/maxprocs"
 	"go.uber.org/automaxprocs/maxprocs"
 	"go.uber.org/zap"
 	"helm.sh/helm/v3/pkg/strvals"
@@ -75,6 +76,13 @@ type Cmd struct {
 }
 
 func (c *Cmd) Run(k *kong.Kong) error {
+	if c.Command[0] == "--" {
+		if len(c.Command) == 1 {
+			return errors.New("a command to run must be provided")
+		}
+		c.Command = c.Command[1:]
+	}
+
 	notifyCtx, stopFunc := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopFunc()
 
@@ -83,7 +91,12 @@ func (c *Cmd) Run(k *kong.Kong) error {
 
 	log := zap.S().Named("run")
 
-	undo, _ := maxprocs.Set(maxprocs.Logger(log.Infof))
+	var undo func()
+	if gomaxecs.IsECS() {
+		undo, _ = gomaxecs.Set(gomaxecs.WithLogger(log.Infof))
+	} else {
+		undo, _ = maxprocs.Set(maxprocs.Logger(log.Infof))
+	}
 	defer undo()
 
 	if err := c.loadConfig(); err != nil {
@@ -117,7 +130,7 @@ func (c *Cmd) Run(k *kong.Kong) error {
 		return err
 	case status := <-statusChan:
 		if status.Error != nil {
-			log.Errorw("Command execution error", "error", err)
+			log.Errorw("Command execution error", "command", c.Command, "error", err)
 			cleanup()
 
 			return err
@@ -169,7 +182,7 @@ func (c *Cmd) loadConfig() error {
 
 		policyDir := filepath.Join(wd, "policies")
 		if _, err := os.Stat(policyDir); err != nil && errors.Is(err, os.ErrNotExist) {
-			if err := os.Mkdir(policyDir, 0o744); err != nil { //nolint:gomnd
+			if err := os.Mkdir(policyDir, 0o744); err != nil { //nolint:mnd
 				return fmt.Errorf("unable to create policies directory: %w", err)
 			}
 		}

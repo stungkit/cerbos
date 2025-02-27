@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 //go:build tests
@@ -26,16 +26,17 @@ import (
 
 const timeout = 2 * time.Second
 
-//nolint:gomnd
+//nolint:mnd
 func TestSuite(store DBStorage) func(*testing.T) {
 	//nolint:thelper
 	return func(t *testing.T) {
-		ctx, cancelFunc := context.WithCancel(context.Background())
+		ctx, cancelFunc := context.WithCancel(t.Context())
 		defer cancelFunc()
 
 		rp := policy.Wrap(test.GenResourcePolicy(test.NoMod()))
 		pp := policy.Wrap(test.GenPrincipalPolicy(test.NoMod()))
 		dr := policy.Wrap(test.GenDerivedRoles(test.NoMod()))
+		ec := policy.Wrap(test.GenExportConstants(test.NoMod()))
 		ev := policy.Wrap(test.GenExportVariables(test.NoMod()))
 		rpx := policy.Wrap(test.GenResourcePolicy(test.PrefixAndSuffix("x", "x")))
 		drx := policy.Wrap(test.GenDerivedRoles(test.PrefixAndSuffix("x", "x")))
@@ -47,9 +48,11 @@ func TestSuite(store DBStorage) func(*testing.T) {
 		ppAcmeHR := withScope(test.GenPrincipalPolicy(test.NoMod()), "acme.hr")
 
 		drImportVariables := policy.Wrap(test.GenDerivedRoles(test.Suffix("_import_variables")))
+		drImportVariables.GetDerivedRoles().Constants = &policyv1.Constants{Import: []string{ec.Name}}
 		drImportVariables.GetDerivedRoles().Variables = &policyv1.Variables{Import: []string{ev.Name}}
 		rpImportDerivedRolesThatImportVariables := policy.Wrap(test.GenResourcePolicy(test.Suffix("_import_derived_roles_that_import_variables")))
 		rpImportDerivedRolesThatImportVariables.GetResourcePolicy().ImportDerivedRoles = []string{drImportVariables.Name}
+		rpImportDerivedRolesThatImportVariables.GetResourcePolicy().Constants = nil
 		rpImportDerivedRolesThatImportVariables.GetResourcePolicy().Variables = nil
 
 		rpDupe1 := policy.Wrap(test.GenResourcePolicy(test.Suffix("@foo")))
@@ -58,10 +61,18 @@ func TestSuite(store DBStorage) func(*testing.T) {
 		ppDupe2 := policy.Wrap(test.GenPrincipalPolicy(test.Suffix("@@foo")))
 		drDupe1 := policy.Wrap(test.GenDerivedRoles(test.Suffix("@foo")))
 		drDupe2 := policy.Wrap(test.GenDerivedRoles(test.Suffix("@@foo")))
+		ecDupe1 := policy.Wrap(test.GenExportConstants(test.Suffix("@foo")))
+		ecDupe2 := policy.Wrap(test.GenExportConstants(test.Suffix("@@foo")))
 		evDupe1 := policy.Wrap(test.GenExportVariables(test.Suffix("@foo")))
 		evDupe2 := policy.Wrap(test.GenExportVariables(test.Suffix("@@foo")))
 
-		policyList := []policy.Wrapper{rp, pp, dr, ev, rpx, drx, rpAcme, rpAcmeHR, rpAcmeHRUK, ppAcme, ppAcmeHR, drImportVariables, rpImportDerivedRolesThatImportVariables, rpDupe1, ppDupe1, drDupe1, evDupe1}
+		xevx := policy.Wrap(test.GenExportVariables(test.PrefixAndSuffix("x", "x")))
+
+		policyList := []policy.Wrapper{rp, pp, dr, ec, ev, rpx, drx, rpAcme, rpAcmeHR, rpAcmeHRUK, ppAcme, ppAcmeHR, drImportVariables, rpImportDerivedRolesThatImportVariables, rpDupe1, ppDupe1, drDupe1, ecDupe1, evDupe1, xevx}
+		policyMap := make(map[string]policy.Wrapper)
+		for _, p := range policyList {
+			policyMap[namer.PolicyKeyFromFQN(p.FQN)] = p
+		}
 
 		sch := test.ReadSchemaFromFile(t, test.PathToDir(t, "store/_schemas/resources/leave_request.json"))
 		const schID = "leave_request"
@@ -76,6 +87,7 @@ func TestSuite(store DBStorage) func(*testing.T) {
 				{Kind: storage.EventAddOrUpdatePolicy, PolicyID: rp.ID},
 				{Kind: storage.EventAddOrUpdatePolicy, PolicyID: pp.ID},
 				{Kind: storage.EventAddOrUpdatePolicy, PolicyID: dr.ID},
+				{Kind: storage.EventAddOrUpdatePolicy, PolicyID: ec.ID},
 				{Kind: storage.EventAddOrUpdatePolicy, PolicyID: ev.ID},
 				{Kind: storage.EventAddOrUpdatePolicy, PolicyID: rpx.ID},
 				{Kind: storage.EventAddOrUpdatePolicy, PolicyID: drx.ID},
@@ -89,7 +101,9 @@ func TestSuite(store DBStorage) func(*testing.T) {
 				{Kind: storage.EventAddOrUpdatePolicy, PolicyID: rpDupe1.ID},
 				{Kind: storage.EventAddOrUpdatePolicy, PolicyID: ppDupe1.ID},
 				{Kind: storage.EventAddOrUpdatePolicy, PolicyID: drDupe1.ID},
+				{Kind: storage.EventAddOrUpdatePolicy, PolicyID: ecDupe1.ID},
 				{Kind: storage.EventAddOrUpdatePolicy, PolicyID: evDupe1.ID},
+				{Kind: storage.EventAddOrUpdatePolicy, PolicyID: xevx.ID},
 			}
 			checkEvents(t, timeout, wantEvents...)
 
@@ -97,7 +111,8 @@ func TestSuite(store DBStorage) func(*testing.T) {
 			require.Equal(t, 7, stats.PolicyCount[policy.ResourceKind])
 			require.Equal(t, 4, stats.PolicyCount[policy.PrincipalKind])
 			require.Equal(t, 4, stats.PolicyCount[policy.DerivedRolesKind])
-			require.Equal(t, 2, stats.PolicyCount[policy.ExportVariablesKind])
+			require.Equal(t, 2, stats.PolicyCount[policy.ExportConstantsKind])
+			require.Equal(t, 3, stats.PolicyCount[policy.ExportVariablesKind])
 		}
 
 		t.Run("add_or_update", func(t *testing.T) {
@@ -109,6 +124,7 @@ func TestSuite(store DBStorage) func(*testing.T) {
 			require.ErrorIs(t, store.AddOrUpdate(ctx, rpDupe2), storage.ErrPolicyIDCollision, "rpDupe2 not detected")
 			require.ErrorIs(t, store.AddOrUpdate(ctx, ppDupe2), storage.ErrPolicyIDCollision, "ppDupe2 not detected")
 			require.ErrorIs(t, store.AddOrUpdate(ctx, drDupe2), storage.ErrPolicyIDCollision, "drDupe2 not detected")
+			require.ErrorIs(t, store.AddOrUpdate(ctx, ecDupe2), storage.ErrPolicyIDCollision, "ecDupe2 not detected")
 			require.ErrorIs(t, store.AddOrUpdate(ctx, evDupe2), storage.ErrPolicyIDCollision, "evDupe2 not detected")
 		})
 
@@ -116,7 +132,7 @@ func TestSuite(store DBStorage) func(*testing.T) {
 			have, err := store.GetCompilationUnits(ctx, rp.ID)
 			require.NoError(t, err)
 			requireCompilationUnits(t, map[policy.Wrapper][]policy.Wrapper{
-				rp: {rp, dr, ev},
+				rp: {rp, dr, ec, ev},
 			}, have)
 		})
 
@@ -124,7 +140,7 @@ func TestSuite(store DBStorage) func(*testing.T) {
 			have, err := store.GetCompilationUnits(ctx, rpImportDerivedRolesThatImportVariables.ID)
 			require.NoError(t, err)
 			requireCompilationUnits(t, map[policy.Wrapper][]policy.Wrapper{
-				rpImportDerivedRolesThatImportVariables: {rpImportDerivedRolesThatImportVariables, drImportVariables, ev},
+				rpImportDerivedRolesThatImportVariables: {rpImportDerivedRolesThatImportVariables, drImportVariables, ec, ev},
 			}, have)
 		})
 
@@ -132,7 +148,7 @@ func TestSuite(store DBStorage) func(*testing.T) {
 			have, err := store.GetCompilationUnits(ctx, pp.ID)
 			require.NoError(t, err)
 			requireCompilationUnits(t, map[policy.Wrapper][]policy.Wrapper{
-				pp: {pp, ev},
+				pp: {pp, ec, ev},
 			}, have)
 		})
 
@@ -140,7 +156,7 @@ func TestSuite(store DBStorage) func(*testing.T) {
 			have, err := store.GetCompilationUnits(ctx, rpAcmeHRUK.ID)
 			require.NoError(t, err)
 			requireCompilationUnits(t, map[policy.Wrapper][]policy.Wrapper{
-				rpAcmeHRUK: {rpAcmeHRUK, rpAcmeHR, rpAcme, rp, dr, ev},
+				rpAcmeHRUK: {rpAcmeHRUK, rpAcmeHR, rpAcme, rp, dr, ec, ev},
 			}, have)
 		})
 
@@ -148,7 +164,7 @@ func TestSuite(store DBStorage) func(*testing.T) {
 			have, err := store.GetCompilationUnits(ctx, ppAcmeHR.ID)
 			require.NoError(t, err)
 			requireCompilationUnits(t, map[policy.Wrapper][]policy.Wrapper{
-				ppAcmeHR: {ppAcmeHR, ppAcme, pp, ev},
+				ppAcmeHR: {ppAcmeHR, ppAcme, pp, ec, ev},
 			}, have)
 		})
 
@@ -156,9 +172,9 @@ func TestSuite(store DBStorage) func(*testing.T) {
 			have, err := store.GetCompilationUnits(ctx, rp.ID, pp.ID, rpAcmeHRUK.ID)
 			require.NoError(t, err)
 			requireCompilationUnits(t, map[policy.Wrapper][]policy.Wrapper{
-				rp:         {rp, dr, ev},
-				pp:         {pp, ev},
-				rpAcmeHRUK: {rpAcmeHRUK, rpAcmeHR, rpAcme, rp, dr, ev},
+				rp:         {rp, dr, ec, ev},
+				pp:         {pp, ec, ev},
+				rpAcmeHRUK: {rpAcmeHRUK, rpAcmeHR, rpAcme, rp, dr, ec, ev},
 			}, have)
 		})
 
@@ -173,14 +189,14 @@ func TestSuite(store DBStorage) func(*testing.T) {
 			modIDs := namer.ScopedResourcePolicyModuleIDs(rpAcmeHR.Name, rpAcmeHR.Version, "acme.hr.france.marseille", true)
 			have, err := store.GetFirstMatch(ctx, modIDs)
 			require.NoError(t, err)
-			requireCompilationUnit(t, rpAcmeHR.ID, []policy.Wrapper{rpAcmeHR, rpAcme, rp, dr, ev}, have)
+			requireCompilationUnit(t, rpAcmeHR.ID, []policy.Wrapper{rpAcmeHR, rpAcme, rp, dr, ec, ev}, have)
 		})
 
 		t.Run("get_first_match_principal_policy", func(t *testing.T) {
 			modIDs := namer.ScopedPrincipalPolicyModuleIDs(ppAcmeHR.Name, ppAcmeHR.Version, "acme.hr.france.marseille", true)
 			have, err := store.GetFirstMatch(ctx, modIDs)
 			require.NoError(t, err)
-			requireCompilationUnit(t, ppAcmeHR.ID, []policy.Wrapper{ppAcmeHR, ppAcme, pp, ev}, have)
+			requireCompilationUnit(t, ppAcmeHR.ID, []policy.Wrapper{ppAcmeHR, ppAcme, pp, ec, ev}, have)
 		})
 
 		t.Run("get_first_match_non_existent", func(t *testing.T) {
@@ -191,19 +207,20 @@ func TestSuite(store DBStorage) func(*testing.T) {
 		})
 
 		t.Run("get_dependents", func(t *testing.T) {
-			have, err := store.GetDependents(ctx, dr.ID, ev.ID)
+			have, err := store.GetDependents(ctx, dr.ID, ec.ID, ev.ID)
 			require.NoError(t, err)
 
-			require.Len(t, have, 2)
+			require.Len(t, have, 3)
 			require.Contains(t, have, dr.ID)
 			require.ElementsMatch(t, []namer.ModuleID{rp.ID, rpAcme.ID, rpAcmeHR.ID, rpAcmeHRUK.ID}, have[dr.ID])
+			require.Contains(t, have, ec.ID)
+			require.ElementsMatch(t, []namer.ModuleID{rp.ID, rpAcme.ID, rpAcmeHR.ID, rpAcmeHRUK.ID, pp.ID, ppAcme.ID, ppAcmeHR.ID, drImportVariables.ID, rpImportDerivedRolesThatImportVariables.ID}, have[ec.ID])
 			require.Contains(t, have, ev.ID)
 			require.ElementsMatch(t, []namer.ModuleID{rp.ID, rpAcme.ID, rpAcmeHR.ID, rpAcmeHRUK.ID, pp.ID, ppAcme.ID, ppAcmeHR.ID, drImportVariables.ID, rpImportDerivedRolesThatImportVariables.ID}, have[ev.ID])
 		})
 
 		t.Run("get_policy", func(t *testing.T) {
 			for _, want := range policyList {
-				want := want
 				t.Run(want.FQN, func(t *testing.T) {
 					haveRes, err := store.LoadPolicy(ctx, namer.PolicyKeyFromFQN(want.FQN))
 					require.NoError(t, err)
@@ -230,6 +247,18 @@ func TestSuite(store DBStorage) func(*testing.T) {
 				}
 
 				require.ElementsMatch(t, want, have)
+			})
+		})
+
+		t.Run("inspect_policies", func(t *testing.T) {
+			t.Run("list of actions should match", func(t *testing.T) {
+				results, err := store.InspectPolicies(ctx, storage.ListPolicyIDsParams{IncludeDisabled: true})
+				require.NoError(t, err)
+
+				for fqn, have := range results {
+					expected := policy.ListActions(policyMap[fqn].Policy)
+					require.ElementsMatch(t, expected, have.Actions)
+				}
 			})
 		})
 
@@ -268,10 +297,17 @@ func TestSuite(store DBStorage) func(*testing.T) {
 						VersionRegexp:   "default$",
 					},
 				},
+				{
+					name: "policy ids",
+					params: storage.ListPolicyIDsParams{
+						IDs: []string{
+							"resource.leave_request.vdefault",
+						},
+					},
+				},
 			}
 
 			for _, tc := range testCases {
-				tc := tc
 				t.Run("should be able to filter policies "+tc.name, func(t *testing.T) {
 					have, err := store.ListPolicyIDs(ctx, tc.params)
 					require.NoError(t, err)

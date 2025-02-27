@@ -1,11 +1,10 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package index
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"io"
 	"io/fs"
@@ -34,7 +33,7 @@ func TestBuildIndexWithDisk(t *testing.T) {
 	fsys, err := util.OpenDirectoryFS(dir)
 	require.NoError(t, err)
 
-	idx, err := Build(context.Background(), fsys)
+	idx, err := Build(t.Context(), fsys)
 	require.NoError(t, err)
 	require.NotNil(t, idx)
 
@@ -45,7 +44,7 @@ func TestBuildIndexWithDisk(t *testing.T) {
 
 	t.Run("check_contents", func(t *testing.T) {
 		data := idxImpl.Inspect()
-		require.Len(t, data, 33)
+		require.Len(t, data, 47)
 
 		rp1 := filepath.Join("resource_policies", "policy_01.yaml")
 		rp2 := filepath.Join("resource_policies", "policy_02.yaml")
@@ -68,6 +67,7 @@ func TestBuildIndexWithDisk(t *testing.T) {
 		dr2 := filepath.Join("derived_roles", "derived_roles_02.yaml")
 		dr3 := filepath.Join("derived_roles", "derived_roles_03.yaml")
 		dr4 := filepath.Join("derived_roles", "derived_roles_04.yaml")
+		ec1 := filepath.Join("export_constants", "export_constants_01.yaml")
 		ev1 := filepath.Join("export_variables", "export_variables_01.yaml")
 
 		for _, rp := range []string{rp1, rp5, rp6, rp7, rp8} {
@@ -117,13 +117,18 @@ func TestBuildIndexWithDisk(t *testing.T) {
 		require.Len(t, data[dr3].Dependents, 1)
 		require.Contains(t, data[dr3].Dependents, rp3)
 
+		ec1AndEv1Dependents := []string{rp9, pp6, dr4}
+		require.Contains(t, data, ec1)
+		require.Empty(t, data[ec1].Dependencies)
+		require.ElementsMatch(t, ec1AndEv1Dependents, data[ec1].Dependents)
+
 		require.Contains(t, data, ev1)
 		require.Empty(t, data[ev1].Dependencies)
-		require.ElementsMatch(t, []string{rp9, pp6, dr4}, data[ev1].Dependents)
+		require.ElementsMatch(t, ec1AndEv1Dependents, data[ev1].Dependents)
 
-		for _, p := range data[ev1].Dependents {
+		for _, p := range ec1AndEv1Dependents {
 			require.Contains(t, data, p)
-			require.ElementsMatch(t, []string{ev1}, data[p].Dependencies)
+			require.ElementsMatch(t, []string{ec1, ev1}, data[p].Dependencies)
 		}
 
 		require.Contains(t, data, rp10)
@@ -132,7 +137,7 @@ func TestBuildIndexWithDisk(t *testing.T) {
 	})
 
 	t.Run("check_stats", func(t *testing.T) {
-		stats := idx.RepoStats(context.Background())
+		stats := idx.RepoStats(t.Context())
 		require.GreaterOrEqual(t, 3, stats.SchemaCount)
 
 		for _, k := range []policy.Kind{policy.DerivedRolesKind, policy.PrincipalKind, policy.ResourceKind} {
@@ -143,11 +148,13 @@ func TestBuildIndexWithDisk(t *testing.T) {
 			})
 		}
 
-		t.Run(policy.ExportVariablesKindStr, func(t *testing.T) {
-			require.GreaterOrEqual(t, stats.PolicyCount[policy.ExportVariablesKind], 1)
-			require.GreaterOrEqual(t, stats.AvgRuleCount[policy.ExportVariablesKind], float64(1.0))
-			require.Zero(t, stats.AvgConditionCount[policy.ExportVariablesKind])
-		})
+		for _, k := range []policy.Kind{policy.ExportConstantsKind, policy.ExportVariablesKind} {
+			t.Run(k.String(), func(t *testing.T) {
+				require.GreaterOrEqual(t, stats.PolicyCount[k], 1)
+				require.GreaterOrEqual(t, stats.AvgRuleCount[k], float64(1.0))
+				require.Zero(t, stats.AvgConditionCount[k])
+			})
+		}
 	})
 
 	t.Run("add_empty", func(t *testing.T) {
@@ -173,12 +180,11 @@ func TestBuildIndex(t *testing.T) {
 	testCases := test.LoadTestCases(t, "index")
 
 	for _, tcase := range testCases {
-		tcase := tcase
 		t.Run(tcase.Name, func(t *testing.T) {
 			tc := readTestCase(t, tcase.Input)
 			fs := toFS(t, tc)
 
-			idx, haveErr := Build(context.Background(), fs)
+			idx, haveErr := Build(t.Context(), fs)
 			switch {
 			case tc.WantErrList != nil:
 				errList := new(BuildError)

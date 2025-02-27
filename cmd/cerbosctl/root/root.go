@@ -1,4 +1,4 @@
-// Copyright 2021-2024 Zenauth Ltd.
+// Copyright 2021-2025 Zenauth Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 package root
@@ -10,6 +10,8 @@ import (
 	"github.com/cerbos/cerbos/cmd/cerbosctl/disable"
 	"github.com/cerbos/cerbos/cmd/cerbosctl/enable"
 	"github.com/cerbos/cerbos/cmd/cerbosctl/get"
+	"github.com/cerbos/cerbos/cmd/cerbosctl/hub"
+	"github.com/cerbos/cerbos/cmd/cerbosctl/inspect"
 	"github.com/cerbos/cerbos/cmd/cerbosctl/internal/flagset"
 	"github.com/cerbos/cerbos/cmd/cerbosctl/put"
 	"github.com/cerbos/cerbos/cmd/cerbosctl/store"
@@ -18,7 +20,9 @@ import (
 
 type Cli struct {
 	Get get.Cmd `cmd:"" help:"List or view policies and schemas"`
+	Hub hub.Cmd `cmd:"" help:"Cerbos Hub operations"`
 	flagset.Globals
+	Inspect   inspect.Cmd   `cmd:"" help:"Inspect policies"`
 	Store     store.Cmd     `cmd:"" help:"Store operations"`
 	Delete    del.Cmd       `cmd:"" help:"Delete schemas"`
 	Disable   disable.Cmd   `cmd:"" help:"Disable policies"`
