@@ -1,5 +1,5 @@
 {
-  "requestId": "{{ .UUID }}",
+  "requestId": "{{ .RequestID }}",
   "principal": {
     "id": "john",
     "policyVersion": "20210210",
@@ -19,7 +19,7 @@
         "approve"
       ],
       "resource": {
-        "kind": "{{ randomInt 0 1000 | printf `leave_request_%05d` }}",
+        "kind": "{{ .NameMod `leave_request` }}",
         "policyVersion": "20210210",
         "id": "XX125",
         "attr": {
@@ -37,7 +37,7 @@
         "approve"
       ],
       "resource": {
-        "kind": "{{ randomInt 0 1000 | printf `leave_request_%05d` }}",
+        "kind": "{{ .NameMod `leave_request` }}",
         "policyVersion": "20210210",
         "id": "YY125",
         "attr": {
@@ -55,7 +55,7 @@
         "approve"
       ],
       "resource": {
-        "kind": "{{ randomInt 0 1000 | printf `leave_request_%05d` }}",
+        "kind": "{{ .NameMod `leave_request` }}",
         "policyVersion": "20210210",
         "id": "ZZ125",
         "attr": {
@@ -73,7 +73,7 @@
         "approve"
       ],
       "resource": {
-        "kind": "{{ randomInt 0 1000 | printf `leave_request_%05d` }}",
+        "kind": "{{ .NameMod `leave_request` }}",
         "policyVersion": "20210210",
         "id": "AA125",
         "attr": {
@@ -91,7 +91,7 @@
         "approve"
       ],
       "resource": {
-        "kind": "{{ randomInt 0 1000 | printf `leave_request_%05d` }}",
+        "kind": "{{ .NameMod `leave_request` }}",
         "policyVersion": "20210210",
         "id": "BB125",
         "attr": {

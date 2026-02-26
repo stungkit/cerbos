@@ -1,4 +1,3 @@
-version: "3.9"
 services:
   cerbos:
     container_name: cerbos
@@ -6,7 +5,9 @@ services:
     restart: always
     command: ["server", "--config=/conf/.cerbos.yaml", "--log-level=warn", "--debug-listen-addr=:6666"]
     depends_on:
-      - postgres
+      postgres:
+        condition: service_started
+        required: false
     environment:
       - AUDIT_ENABLED=${AUDIT_ENABLED}
       - SCHEMA_ENFORCEMENT=${SCHEMA_ENFORCEMENT}
@@ -22,16 +23,18 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2.0'
-          memory: 200M
+          cpus: '4.0'
+          memory: 512M
         reservations:
-          cpus: '0.5'
-          memory: 30M
+          cpus: '1.0'
+          memory: 64M
 
   postgres:
     container_name: postgres
     image: postgres:14.0-alpine
     restart: always
+    profiles:
+      - postgres
     environment:
       - POSTGRES_USER=cerbos
       - POSTGRES_PASSWORD=cerbos
